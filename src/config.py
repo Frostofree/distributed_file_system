@@ -1,6 +1,7 @@
 # General
 HOST = 'localhost'
 CHUNK_SIZE = 1024
+PACKET_SIZE = 128
 
 # Master
 MASTER_PORT = '8888'

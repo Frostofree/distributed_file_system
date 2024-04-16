@@ -1,7 +1,21 @@
 import socket
 import pickle
+import os.path
 
 import config
+
+MAX = 10000
+
+def stream_chunk(local_path, curr, handle, locs):
+	yield handle
+	yield locs
+	with open(local_path, 'r', buffering=config.PACKET_SIZE) as f:
+		f.seek(curr*config.CHUNK_SIZE)
+		for _ in range(config.CHUNK_SIZE // config.PACKET_SIZE):
+			data = f.read(config.PACKET_SIZE)
+			if len(data) == 0:
+				break
+			yield data
 
 class Client():
 	def __init__(self):
@@ -14,7 +28,39 @@ class Client():
 			self.chunks.append(chunk)
 
 	def create_file(self, local_path, dfs_path):
-		pass
+		bytes = str(os.path.getsize(local_path))
+		chunks = bytes // config.CHUNK_SIZE + int(bytes%config.CHUNK_SIZE != 0)
+		request = 'client:' + 'createfile:' + dfs_path + ':lol2'
+		self.master.send(bytes(request, 'utf-8'))
+		status = self.master.recv(1024)
+		message = pickle.loads(status)
+		# check for errors
+		curr = 0
+		flag = True
+		while curr < chunks:
+			request = 'client:' + 'get_chunk_locs:' + dfs_path + ':' + curr
+			self.master.send(bytes(request, 'utf-8'))
+			status = self.master.recv(1024)
+			message = pickle.loads(status)
+			# check for errors
+			chunk = message
+			iterator = stream_chunk(local_path, curr, chunk.handle, chunk.locs)
+			request = 'client:' + 'create_chunk:' + iterator + ':lol2'
+			self.chunks[chunk.locs[0]].send(bytes(request, 'utf-8'))
+			status = self.chunks[chunk.locs[0]].recv(1024)
+			message = pickle.loads(status)
+			# handle for errors and retrying here
+			request = 'client:' + 'commit_chunk:' + dfs_path + ':' + chunk.handle
+			self.master.send(bytes(request, 'utf-8'))
+			status = self.master.recv(1024)
+			message = pickle.loads(status)
+			curr += 1
+		request = 'client:' + 'file_create_status:' + flag + ':lol2'
+		self.master.send(bytes(request, 'utf-8'))
+		status = self.master.recv(1024)
+		message = pickle.loads(status)
+		print(message)
+
 
 	def read_file(self, path, offset, bytes):
 		if offset < 0 or bytes < -1:
@@ -24,7 +70,7 @@ class Client():
 		end = -1 if bytes == -1 else ((offset+start-1) // config.CHUNK_SIZE)
 		curr = start
 		while end == -1 or curr <= end:
-			request = 'client:' + 'readfile:' + curr + ':lol2'
+			request = 'client:' + 'readfile:' + path + ':' + curr
 			self.master.send(bytes(request, 'utf-8'))
 			status = self.master.recv(1024)
 			message = pickle.loads(status)
@@ -35,11 +81,20 @@ class Client():
 				return
 			begin = 0 if curr != start else (offset % config.CHUNK_SIZE)
 			end = config.CHUNK_SIZE
-			# request = 
+			for i in message.chunks:
+				data = ''
+				request = 'client:' + str(begin) + ':' + str(end-begin+1) + ':lol2'
+				self.chunks[i].send(bytes(request, 'utf-8'))
+				status = self.chunks[i].recv(1024)
+				iterator = pickle.loads(status)
+				for it in iterator:
+					data += it
+				print(data, end='')
 			curr += 1
-		pass
+		print('')
+		
 
-	def list_files(self):
+	def list_files(self): 
 		request = 'client:' + 'listfiles:' + 'lol1:' + 'lol2'
 		self.master.send(bytes(request, 'utf-8'))
 		status = self.master.recv(1024)
@@ -81,7 +136,7 @@ if __name__ == '__main__':
 
 
 # create local_file_path dfs_file_path
-# 	get the number of files
+# 	get the size of files
 # 	send message to master to create file (create_file)
 # 	for each byte
 # 		send message to master to get chunk location (get_chunk_locs)
