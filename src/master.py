@@ -5,6 +5,8 @@ import config
 import uuid as uuid
 import random
 
+import pickle
+
 
 class File():
 	def _init_(self, dfs_path: str):
@@ -12,26 +14,26 @@ class File():
 		self.size = None
 		self.chunks = {}
 		self.status = None
-		
-class MessageHandler():
-	def parse_message(message):
+
+	def __repr__(self):
+		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
+
+
+def parse_message(message):
 		# sample message: client:' + 'createfile:' + dfs_path + ':' + size
 		parsed = message.split(':')
 		sender_type = parsed[0]
 		command = parsed[1]
 		args = parsed[2:]
-
-		if sender_type not in ['client', 'chunk']:
-			return 'Invalid sender type'
-		return sender_type, command, args		
+		return sender_type, command, args
 
 
 class MasterServer():
-	def _init_(self, host, port):
+	def __init__(self, host, port):
 		self.host = host
 		self.port = port
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
+		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		self.sock.bind((self.host, self.port))
 		self.NUM_CHUNKS = config.NUM_CHUNKS
 		self.files = {} # maps file path to file object
@@ -46,20 +48,45 @@ class MasterServer():
 			handler.start()
 
 	def service(self, client, address):
-		# listen here from client or chunk server
-		pass
+		sender_type, command, args = parse_message(client.recv(1024).decode('utf-8'))
+		if sender_type == 'client':
+			if command == 'create_file':
+				self.create_file(args[0])
+			elif command == 'get_chunk_locs':
+				self.get_chunk_locs(args[0], args[1])
+			elif command == 'commit_chunk':
+				self.commit_chunk(args[0], args[1])
+			elif command == 'file_create_status':
+				self.file_create_status(args[0], int(args[1]))
+			elif command == 'get_chunk_details':
+				self.get_chunk_details(args[0], int(args[1]))
+			elif command == 'list_files':
+				self.list_files(client, args[0])
+			elif command == 'delete_file':
+				self.delete_file(args[0], int(args[1]))
+				pass
+		elif sender_type == 'chunkserver':
+			pass
+		else:
+			print('Invalid Sender Type!')
 
-	def create_file(self, dfs_path, size):
+
+	def create_file(self, dfs_path):
 		'''Check if file already exists, if not create a new file with the given number of chunks and return the chunk locations'''
 		if dfs_path in self.files:
 			return 'File already exists'
 		file = File(dfs_path) 
 		self.files[dfs_path] = file
 		return 'File created'
+		print("file created")
 	
+	def list_files(self, client, dfs_path):
+		'''List all files in the system'''
+		message = self.files.keys()
+		client.send(pickle.dumps(message))
+		print("files listed")
 
 	def get_chunk_locs(self, num_chunks, dfs_path, current_chunk): 
-		# has to send back a uid and a list of chunk locations
 		chunk_handle = self.__assign_chunk_handle()
 		chunk_servers = self.__assign_chunk_server()
 		self.chunk_map[chunk_handle] = chunk_servers
@@ -77,5 +104,6 @@ class MasterServer():
 
 if __name__ == '__main__':
 	print('Master Server Running')
+	
 	ms = MasterServer(config.HOST, config.MASTER_PORT)
 	ms.listen()
