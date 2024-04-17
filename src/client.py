@@ -30,7 +30,7 @@ class Client():
 	def create_file(self, local_path, dfs_path):
 		bytes = str(os.path.getsize(local_path))
 		chunks = bytes // config.CHUNK_SIZE + int(bytes%config.CHUNK_SIZE != 0)
-		request = 'client:' + 'createfile:' + dfs_path + ':lol2'
+		request = 'client:' + 'create_file:' + dfs_path + ':lol2'
 		self.master.send(bytes(request, 'utf-8'))
 		status = self.master.recv(1024)
 		message = pickle.loads(status)
@@ -70,7 +70,7 @@ class Client():
 		end = -1 if bytes == -1 else ((offset+start-1) // config.CHUNK_SIZE)
 		curr = start
 		while end == -1 or curr <= end:
-			request = 'client:' + 'readfile:' + path + ':' + curr
+			request = 'client:' + 'get_chunk_details:' + path + ':' + curr
 			self.master.send(bytes(request, 'utf-8'))
 			status = self.master.recv(1024)
 			message = pickle.loads(status)
@@ -81,9 +81,9 @@ class Client():
 				return
 			begin = 0 if curr != start else (offset % config.CHUNK_SIZE)
 			end = config.CHUNK_SIZE
-			for i in message.chunks:
+			for i in message.locs:
 				data = ''
-				request = 'client:' + str(begin) + ':' + str(end-begin+1) + ':lol2'
+				request = 'client:' + 'read_chunk:' + str(begin) + ':' + str(end-begin+1)
 				self.chunks[i].send(bytes(request, 'utf-8'))
 				status = self.chunks[i].recv(1024)
 				iterator = pickle.loads(status)
@@ -95,7 +95,7 @@ class Client():
 		
 
 	def list_files(self): 
-		request = 'client:' + 'listfiles:' + 'lol1:' + 'lol2'
+		request = 'client:' + 'list_files:' + 'lol1:' + 'lol2'
 		self.master.send(bytes(request, 'utf-8'))
 		status = self.master.recv(1024)
 		iterator = pickle.loads(status)
@@ -105,7 +105,7 @@ class Client():
 
 
 	def delete_file(self, path):
-		request = 'client:' + 'deletefile:' + path + ':lol2'
+		request = 'client:' + 'delete_file:' + path + ':lol2'
 		self.master.send(bytes(request, 'utf-8'))
 		status = self.master.recv(1024)
 		message = pickle.loads(status)

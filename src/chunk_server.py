@@ -4,6 +4,14 @@ import threading
 
 import config
 
+def parse_message(message):
+		# sample message: client:' + 'createfile:' + dfs_path + ':' + size
+		parsed = message.split(':')
+		sender_type = parsed[0]
+		command = parsed[1]
+		args = parsed[2:]
+		return sender_type, command, args
+
 class ChunkServer():
 	def __init__(self, host, port):
 		self.host = host
@@ -11,6 +19,34 @@ class ChunkServer():
 		self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
 		self.sock.bind((self.host, self.port))
+		self.wake_up(1)
+
+	def wake_up(self, init):
+		pass
+
+	def read_chunk(self, chunk_handle, offset, bytes):
+		pass
+
+	def write_chunk(self):
+		pass
+
+	def write_and_yield_chunk(self):
+		pass
+
+	def create_chunk(self, chunk_handle, loc_list, iterator):
+		pass
+
+	def replicate_chunk(self):
+		pass
+
+	def commit_chunk(self):
+		pass
+
+	def delete_chunk(self):
+		pass
+
+	def chunk_cleanup(self):
+		pass
 
 	def listen(self):
 		self.sock.listen(5)
@@ -22,7 +58,18 @@ class ChunkServer():
 
 	def service(self, client, address):
 		# listen here fron client and master
-		pass
+		sender_type, command, args = parse_message(client.recv(1024).decode('utf-8'))
+		if sender_type == 'master':
+			pass
+		elif sender_type == 'client':
+			if command == 'create_chunk':
+				self.create_chunk(args[0], args[1], args[2])
+			elif command == 'read_chunk':
+				self.read_chunk(args[0], int(args[1]), int(args[2]))
+		elif sender_type == 'chunkserver':
+			pass
+		else:
+			print('Invalid Sender Type!')
 
 
 if __name__ == '__main__':
