@@ -43,7 +43,7 @@ class MasterServer():
 		self.sock.listen(5)
 		while True:
 			client, address = self.sock.accept()
-			client.timeout(60)
+			client.settimeout(60)
 			handler = threading.Thread(target=self.service, args=(client, address))
 			handler.start()
 
@@ -104,6 +104,5 @@ class MasterServer():
 
 if __name__ == '__main__':
 	print('Master Server Running')
-	
 	ms = MasterServer(config.HOST, config.MASTER_PORT)
 	ms.listen()
