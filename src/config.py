@@ -1,10 +1,10 @@
 # General
 HOST = 'localhost'
-CHUNK_SIZE = 1024
-PACKET_SIZE = 128
+CHUNK_SIZE = 16
+PACKET_SIZE = 4
 
 # Master
-MASTER_PORT = 8888
+MASTER_PORT = 8000
 
 # Chunk Server
 NUM_CHUNKS = 4

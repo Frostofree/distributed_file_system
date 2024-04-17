@@ -19,47 +19,56 @@ def stream_chunk(local_path, curr, handle, locs):
 
 class Client():
 	def __init__(self):
-		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
-		self.chunks = []
-		for i in range(config.NUM_CHUNKS):
-			chunk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			chunk.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[i]))
-			self.chunks.append(chunk)
+		pass
+		# self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
+		# self.chunks = []
+		# for i in range(config.NUM_CHUNKS):
+		# 	chunk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		# 	chunk.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[i]))
+		# 	self.chunks.append(chunk)
 
 	def create_file(self, local_path, dfs_path):
-		bytes = str(os.path.getsize(local_path))
-		chunks = bytes // config.CHUNK_SIZE + int(bytes%config.CHUNK_SIZE != 0)
+		num_bytes = os.path.getsize(local_path)
+		chunks = num_bytes // config.CHUNK_SIZE + int(num_bytes%config.CHUNK_SIZE != 0)
 		request = 'client:' + 'create_file:' + dfs_path + ':lol2'
+		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 		self.master.send(bytes(request, 'utf-8'))
 		status = self.master.recv(1024)
 		message = pickle.loads(status)
+		
+		
 		# check for errors
 		curr = 0
 		flag = True
+		print(chunks)
 		while curr < chunks:
-			request = 'client:' + 'get_chunk_locs:' + dfs_path + ':' + curr
+			request = 'client:' + 'get_chunk_locs:' + dfs_path + ':' + str(curr)
+			self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 			self.master.send(bytes(request, 'utf-8'))
 			status = self.master.recv(1024)
 			message = pickle.loads(status)
-			# check for errors
-			chunk = message
-			iterator = stream_chunk(local_path, curr, chunk.handle, chunk.locs)
-			request = 'client:' + 'create_chunk:' + iterator + ':lol2'
-			self.chunks[chunk.locs[0]].send(bytes(request, 'utf-8'))
-			status = self.chunks[chunk.locs[0]].recv(1024)
-			message = pickle.loads(status)
-			# handle for errors and retrying here
-			request = 'client:' + 'commit_chunk:' + dfs_path + ':' + chunk.handle
-			self.master.send(bytes(request, 'utf-8'))
-			status = self.master.recv(1024)
-			message = pickle.loads(status)
+			print(message)
 			curr += 1
-		request = 'client:' + 'file_create_status:' + flag + ':lol2'
-		self.master.send(bytes(request, 'utf-8'))
-		status = self.master.recv(1024)
-		message = pickle.loads(status)
-		print(message)
+		# 	# check for errors
+		# 	chunk = message
+		# 	iterator = stream_chunk(local_path, curr, chunk.handle, chunk.locs)
+		# 	request = 'client:' + 'create_chunk:' + iterator + ':lol2'
+		# 	self.chunks[chunk.locs[0]].send(bytes(request, 'utf-8'))
+		# 	status = self.chunks[chunk.locs[0]].recv(1024)
+		# 	message = pickle.loads(status)
+		# 	# handle for errors and retrying here
+		# 	request = 'client:' + 'commit_chunk:' + dfs_path + ':' + chunk.handle
+		# 	self.master.send(bytes(request, 'utf-8'))
+		# 	status = self.master.recv(1024)
+		# 	message = pickle.loads(status)
+		# 	curr += 1
+		# request = 'client:' + 'file_create_status:' + flag + ':lol2'
+		# self.master.send(bytes(request, 'utf-8'))
+		# status = self.master.recv(1024)
+		# message = pickle.loads(status)
+		# print(message)
 
 
 	def read_file(self, path, offset, bytes):
@@ -96,12 +105,14 @@ class Client():
 
 	def list_files(self): 
 		request = 'client:' + 'list_files:' + 'lol1:' + 'lol2'
+		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 		self.master.send(bytes(request, 'utf-8'))
 		status = self.master.recv(1024)
 		iterator = pickle.loads(status)
 		for it in iterator:
 			print(it, end=' ')
-		print()
+		self.master.close()
 
 
 	def delete_file(self, path):
@@ -133,6 +144,8 @@ if __name__ == '__main__':
 			break
 		else:
 			print('Please enter a valid command')
+		
+		print()
 
 
 # create local_file_path dfs_file_path

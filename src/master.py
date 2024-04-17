@@ -64,10 +64,12 @@ class MasterServer():
 
 	def service(self, client, address):
 		sender_type, command, args = parse_message(client.recv(1024).decode('utf-8'))
+		print(command)
 		if sender_type == 'client':
 			if command == 'create_file':
-				self.create_file(args[0])
+				self.create_file(client, args[0])
 			elif command == 'get_chunk_locs':
+				print("sdfsdfsdfsdfsdfdsf")
 				self.get_chunk_locs(client, args[0], args[1])
 			elif command == 'commit_chunk':
 				self.commit_chunk(args[0], args[1])
@@ -86,14 +88,15 @@ class MasterServer():
 			print('Invalid Sender Type!')
 
 
-	def create_file(self, dfs_path):
+	def create_file(self, client, dfs_path):
 		'''Check if file already exists, if not create a new file with the given number of chunks and return the chunk locations'''
 		if dfs_path in self.files:
-			return 'File already exists'
-		file = File(dfs_path) 
-		self.files[dfs_path] = file
-		print("file created")
-		return 'File created'
+			client.send(pickle.dumps('File already exists'))
+		else:
+			file = File(dfs_path) 
+			self.files[dfs_path] = file
+			print("file created")
+			client.send(pickle.dumps('File created'))
 		
 	
 	def list_files(self, client, dfs_path):
@@ -104,23 +107,25 @@ class MasterServer():
 		print("files listed")
 
 	def get_chunk_locs(self, client, dfs_path, current_chunk): 
-		chunk_handle = self.__assign_chunk_handle()
-		chunk_servers = self.__assign_chunk_server()
-		self.chunk_map[chunk_handle] = chunk_servers
+		current_chunk = int(current_chunk)
+		chunk_handle = self._assign_chunk_handle()
+		chunk_servers = self._assign_chunk_server()
+		
 		file = self.files[dfs_path]
 		file.chunks[current_chunk] = (chunk_handle, chunk_servers)
+		
 		response_data = {
-        	"chunk_handle": chunk_handle,
-        	"chunk_servers": chunk_servers
+        	"handle": chunk_handle,
+        	"locs": chunk_servers
     	}
 		serialized_data = pickle.dumps(response_data)
 		client.send(serialized_data)
 	
 	
-	def __assign_chunk_server(replication_factor = config.REPLICATION_FACTOR):
-		return random.choices(config.CHUNK_PORTS, replication_factor)
+	def _assign_chunk_server(self, replication_factor = config.REPLICATION_FACTOR):
+		return random.sample(config.CHUNK_PORTS, k=replication_factor)
 
-	def __assign_chunk_handle():
+	def _assign_chunk_handle(self):
 		return str(uuid.uuid4())
 	
 
