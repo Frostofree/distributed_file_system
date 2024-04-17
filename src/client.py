@@ -22,10 +22,10 @@ class Client():
 		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 		self.chunks = []
-		# for i in range(config.NUM_CHUNKS):
-		# 	chunk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		# 	chunk.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[i]))
-		# 	self.chunks.append(chunk)
+		for i in range(config.NUM_CHUNKS):
+			chunk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			chunk.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[i]))
+			self.chunks.append(chunk)
 
 	def create_file(self, local_path, dfs_path):
 		bytes = str(os.path.getsize(local_path))

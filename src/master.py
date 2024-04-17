@@ -8,8 +8,22 @@ import random
 import pickle
 
 
+class Directory():
+	def __init__(self, dfs_path: str):
+		self.dfs_path = dfs_path
+		self.files = {}
+		self.subdirectories = {}
+	def add_dir(self, name: str):
+		if name in self.subdirectories:
+			print( f'Directory {name} already exists')
+		self.children[name] = Directory(name)
+
+	def add_file(self, name: str, size: int):
+		if name in self.files:
+			print( f'File {name} already exists')
+		self.children[name] = File(name, size)
 class File():
-	def _init_(self, dfs_path: str):
+	def __init__(self, dfs_path: str):
 		self.dfs_path = dfs_path
 		self.size = None
 		self.chunks = {}
@@ -37,7 +51,8 @@ class MasterServer():
 		self.sock.bind((self.host, self.port))
 		self.NUM_CHUNKS = config.NUM_CHUNKS
 		self.files = {} # maps file path to file object
-
+		self.root = Directory('/')
+		
 
 	def listen(self):
 		self.sock.listen(5)
@@ -53,7 +68,7 @@ class MasterServer():
 			if command == 'create_file':
 				self.create_file(args[0])
 			elif command == 'get_chunk_locs':
-				self.get_chunk_locs(args[0], args[1])
+				self.get_chunk_locs(client, args[0], args[1])
 			elif command == 'commit_chunk':
 				self.commit_chunk(args[0], args[1])
 			elif command == 'file_create_status':
@@ -77,22 +92,30 @@ class MasterServer():
 			return 'File already exists'
 		file = File(dfs_path) 
 		self.files[dfs_path] = file
-		return 'File created'
 		print("file created")
+		return 'File created'
+		
 	
 	def list_files(self, client, dfs_path):
+		print("in ls function")
 		'''List all files in the system'''
-		message = self.files.keys()
+		message = list(self.files.keys())
 		client.send(pickle.dumps(message))
 		print("files listed")
 
-	def get_chunk_locs(self, num_chunks, dfs_path, current_chunk): 
+	def get_chunk_locs(self, client, dfs_path, current_chunk): 
 		chunk_handle = self.__assign_chunk_handle()
 		chunk_servers = self.__assign_chunk_server()
 		self.chunk_map[chunk_handle] = chunk_servers
 		file = self.files[dfs_path]
 		file.chunks[current_chunk] = (chunk_handle, chunk_servers)
-		return (chunk_handle, chunk_servers)
+		response_data = {
+        	"chunk_handle": chunk_handle,
+        	"chunk_servers": chunk_servers
+    	}
+		serialized_data = pickle.dumps(response_data)
+		client.send(serialized_data)
+	
 	
 	def __assign_chunk_server(replication_factor = config.REPLICATION_FACTOR):
 		return random.choices(config.CHUNK_PORTS, replication_factor)
