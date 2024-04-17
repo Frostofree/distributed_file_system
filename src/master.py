@@ -6,6 +6,13 @@ import uuid as uuid
 import random
 
 
+class File():
+	def __init__(self, dfs_path: str, size):
+		self.dfs_path = dfs_path
+		self.size = size
+		self.chunks = {}
+		self.status = None
+		
 class MessageHandler():
 	def parse_message(message):
 		# sample message: client:' + 'createfile:' + dfs_path + ':' + size
@@ -47,6 +54,7 @@ class MasterServer():
 		'''Check if file already exists, if not create a new file with the given number of chunks and return the chunk locations'''
 		if dfs_path in self.files:
 			return 'File already exists'
+		
 		
 
 	def get_chunk_locs(self, num_chunks, dfs_path):
