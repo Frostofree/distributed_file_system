@@ -1,11 +1,12 @@
 # General
-HOST = 'localhost'
+HOST = "localhost"
 CHUNK_SIZE = 32
 MESSAGE_SIZE = 1024
 PACKET_SIZE = 2048
 
 # Master
 MASTER_PORT = 8005
+MASTER_SERVER = "10.2.129.199"
 
 # Chunk Server
 NUM_CHUNKS = 1

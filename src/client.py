@@ -8,7 +8,7 @@ import json
 class Client():
 	def __init__(self):
 		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
+		self.master.connect((config.MASTER_SERVER, config.MASTER_PORT))
 
 	def create_dir(self, dfs_dir, new_dir):
 		request = self._get_message_data('create_dir', dfs_dir, new_dir)
