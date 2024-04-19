@@ -1,13 +1,14 @@
 # General
 HOST = 'localhost'
-CHUNK_SIZE = 16
-PACKET_SIZE = 4
+CHUNK_SIZE = 32
+MESSAGE_SIZE = 1024
+PACKET_SIZE = 2048
 
 # Master
-MASTER_PORT = 8000
+MASTER_PORT = 8005
 
 # Chunk Server
-NUM_CHUNKS = 4
-CHUNK_PORTS = [8001, 8002, 8003, 8004]
-REPLICATION_FACTOR = 2
-ROOT_DIR = ['/chunk1', '/chunk2', '/chunk3', '/chunk4']
+NUM_CHUNKS = 1
+CHUNK_PORTS = [8001]
+REPLICATION_FACTOR = 1
+ROOT_DIR = ['./chunkdata/chunk1', './chunkdata/chunk2', './chunkdata/chunk3', './chunkdata/chunk4']

@@ -1,0 +1,3 @@
+isten()
+		while True:
+			client,

@@ -1,0 +1,2 @@
+f.port = port
+		self.sock = sock
