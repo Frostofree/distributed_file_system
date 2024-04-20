@@ -29,6 +29,14 @@ class File():
 		self.chunk_ordering = OrderedDict()
 		self.status = None
 
+		# chunk_server1: 1 2 4 5 8
+		# chunk_server2: 1 3 4 6 7 8
+		# chunk_server3: 2 3 6 7 5
+  
+		# self.chunks
+		# 1: cs1 cs2
+		# 2: cs1 cs3
+
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
 
@@ -71,6 +79,12 @@ class MasterServer():
 						self.set_chunk_loc(client, args)
 					elif command == 'create_dir':
 						self.create_dir(client, args)
+					elif command == 'read_file':
+						self.read_file(client, args)
+					elif command == 'list_files':
+						self.list_files(client, args)
+					elif command == 'delete_file':
+						self.delete_file(client, args)
 					elif command == 'close':
 						self.close_connection(client)
 						connected = False
@@ -80,6 +94,105 @@ class MasterServer():
 				print(f"Client with IP {ip} and Port {port} unexpectedly disconnected.")
 				client.close()
 				connected = False 
+
+
+	def read_file(self, client, args):
+		directory = args[0]
+		file_name = args[1]
+
+		directory = [part for part in directory.split('/') if part]
+		curr_dir = self.root
+
+		for d in directory: 
+			if d not in curr_dir.subdirectories:
+				client.send(self.__respond_status(-1, 'Directory does not exist'))
+				return
+			curr_dir = curr_dir.subdirectories[d]
+
+		if file_name not in curr_dir.files:
+			client.send(self.__respond_status(-1, 'File does not exist'))
+		else:
+			file = curr_dir.files[file_name]
+
+			chunk_ids, chunk_locs = [], []
+			for id, loc in file.chunks.items():
+				chunk_ids.append(id)
+				chunk_locs.append(loc)
+
+			response = {
+				'status': 0,
+				'chunk_ids': chunk_ids,
+				'chunk_locs': chunk_locs
+			}
+
+			response = json.dumps(response).encode('utf-8')
+			response += b' ' * (config.MESSAGE_SIZE - len(response))
+			client.send(response)
+
+
+
+	def list_files(self, client, args):
+		dfs_dir = args[0]
+		# print(dfs_dir)
+
+		directory = [part for part in dfs_dir.split('/') if part]
+		curr_dir = self.root
+		# print(directory, curr_dir)
+
+		for d in directory: 
+			if d not in curr_dir.subdirectories:
+				client.send(self.__respond_status(-1, 'Directory does not exist'))
+				return
+			curr_dir = curr_dir.subdirectories[d]
+
+		# print(curr_dir, curr_dir.files)
+		data = list(curr_dir.files.keys())
+		# print(data)
+		response = {
+			'status': 0,
+			'data': data
+		}
+
+		response = json.dumps(response).encode('utf-8')
+		response += b' ' * (config.MESSAGE_SIZE - len(response))
+		client.send(response)
+
+
+
+	def delete_file(self, client, args):
+		directory = args[0]
+		file_name = args[1]
+
+		directory = [part for part in directory.split('/') if part]
+		curr_dir = self.root
+
+		for d in directory: 
+			if d not in curr_dir.subdirectories:
+				client.send(self.__respond_status(-1, 'Directory does not exist'))
+				return
+			curr_dir = curr_dir.subdirectories[d]
+
+		if file_name not in curr_dir.files:
+			client.send(self.__respond_status(-1, 'File does not exist'))
+		else:
+			file = curr_dir.files[file_name]
+			curr_dir.files.pop(file_name)
+
+			chunk_ids, chunk_locs = [], []
+			for id, loc in file.chunks.items():
+				chunk_ids.append(id)
+				chunk_locs.append(loc)
+
+			response = {
+				'status': 0,
+				'chunk_ids': chunk_ids,
+				'chunk_locs': chunk_locs
+			}
+
+			response = json.dumps(response).encode('utf-8')
+			response += b' ' * (config.MESSAGE_SIZE - len(response))
+			client.send(response)
+
 	
 				
 
@@ -102,6 +215,8 @@ class MasterServer():
 			curr_dir.add_file(file_name)
 			print(f"added file {file_name}")
 			client.send(self.__respond_status(0, 'File Created'))
+
+
 
 	def set_chunk_loc(self, client, args):
 		dfs_dir = args[0]
@@ -126,7 +241,8 @@ class MasterServer():
 		if not file.chunk_ordering:
 			file.chunk_ordering[0] = chunk_id
 		else:
-			last_key, last_chunk_id = file.chunk_ordering.popitem(last=True)
+			# last_key, last_chunk_id = file.chunk_ordering.popitem(last=True)
+			last_key = len(file.chunk_ordering)
 			file.chunk_ordering[last_key + 1] = chunk_id
 
 		file.chunks[chunk_id] = chunk_locs

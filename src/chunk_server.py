@@ -35,8 +35,35 @@ class ChunkServer():
         command = message["function"]
         args = message["args"]
 
-        if command == "write_chunk":
-            self.write_chunk(client, args)
+        if sender_type == 'client':
+            if command == "write_chunk":
+                self.write_chunk(client, args)
+            elif command == 'read_chunk':
+                self.read_chunk(client, args)
+            elif command == 'delete_chunk':
+                self.delete_chunk(client, args)
+
+
+    def read_chunk(self, client, args):
+        data = ''
+        with open(os.path.join(self.rootdir, args[0]), 'r') as f:
+            data = f.read()
+
+        response = {
+            'status': 0,
+            'data': data
+        }
+
+        response = json.dumps(response).encode('utf-8')
+        response += b' ' * (config.MESSAGE_SIZE - len(response))
+        client.send(response)
+
+
+    def delete_chunk(self, client, args):
+        file_path = os.path.join(self.rootdir, args[0])
+        os.remove(file_path)
+        client.send(self._respond_status(0, 'Chunk deleted'))
+
         
     def write_chunk(self, client, args):
         print(f"Writing Chunk {args[0]}")
@@ -56,9 +83,6 @@ class ChunkServer():
         client.close()
 
 
-
-
-
     def _respond_status(self, code, message):
 
         response =  {
@@ -68,6 +92,8 @@ class ChunkServer():
         response = json.dumps(response).encode('utf-8')
         response += b' ' * (config.MESSAGE_SIZE - len(response))
         return response
+    
+
 
 if __name__ == '__main__':
     num = int(sys.argv[1])
@@ -81,5 +107,3 @@ if __name__ == '__main__':
     print('Chunk Server Running')
     cs = ChunkServer(config.HOST, port, rootdir)
     cs.listen()
-
-

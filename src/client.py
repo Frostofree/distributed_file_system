@@ -8,7 +8,7 @@ import json
 class Client():
 	def __init__(self):
 		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self.master.connect((config.MASTER_SERVER, config.MASTER_PORT))
+		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 
 	def create_dir(self, dfs_dir, new_dir):
 		request = self._get_message_data('create_dir', dfs_dir, new_dir)
@@ -52,6 +52,93 @@ class Client():
 				chunk_server.sendall(data)
 	
 			chunk_server.close()
+
+
+	def read_file(self, dfs_dir, dfs_name):
+
+		request = self._get_message_data('read_file', dfs_dir, dfs_name)
+		self.master.sendall(request)
+		response = self.master.recv(config.MESSAGE_SIZE)
+		response = json.loads(response.decode('utf-8'))
+		if response['status'] == -1:
+			print(response['message'])
+			return
+		
+		# print(response['chunk_ids'])
+		# print(response['chunk_locs'])
+
+		data = ''
+		final_success = True
+		for id, locs in zip(response['chunk_ids'], response['chunk_locs']):
+			success = False
+			for loc in locs:
+				if success == False:
+					try:
+						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
+						request = self._get_message_data('read_chunk', id)	
+						chunk_server.sendall(request)
+						response = chunk_server.recv(config.MESSAGE_SIZE)
+						response = json.loads(response.decode('utf-8'))
+						if response['status'] == -1:
+							success = False
+						else:
+							data += response['data']
+							success = True
+					except:
+						success = False
+				else:
+					break
+			if success == False:
+				final_success = False
+				break
+		
+		if final_success == False:
+			print("Can't read file now. Try again later")
+		else:
+			print(data)
+		
+	
+	def list_files(self, dfs_dir):
+
+		request = self._get_message_data('list_files', dfs_dir)
+		self.master.sendall(request)
+		response = self.master.recv(config.MESSAGE_SIZE)
+		response = json.loads(response.decode('utf-8'))
+		if response['status'] == -1:
+			print(response['message'])
+			return
+		for file in response['data']:
+			print(file)
+
+
+	def delete_file(self, dfs_dir, dfs_name):
+
+		request = self._get_message_data('delete_file', dfs_dir, dfs_name)
+		self.master.sendall(request)
+		response = self.master.recv(config.MESSAGE_SIZE)
+		response = json.loads(response.decode('utf-8'))
+		if response['status'] == -1:
+			print(response['message'])
+			return
+		
+		# print(response['chunk_ids'])
+		# print(response['chunk_locs'])
+
+		for id, locs in zip(response['chunk_ids'], response['chunk_locs']):
+			for loc in locs:
+				chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+				chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
+				request = self._get_message_data('delete_chunk', id)	
+				chunk_server.sendall(request)
+				response = chunk_server.recv(config.MESSAGE_SIZE)
+				response = json.loads(response.decode('utf-8'))
+				if response['status'] == -1:
+					print(response['message'])
+					return
+
+		
+
 	def close_connection(self):
 			# send message to close connection
 			request = self._get_message_data('close', '')
@@ -86,19 +173,23 @@ if __name__ == '__main__':
 		command, args = words[0], words[1:]
 
 		if command == 'ls':
-			client.list_files()
+			# usage ls <dfs_directory>
+			client.list_files(args[0])
 		elif command == 'delete':
-			client.delete_file(args[0])
+			# usage delete <dfs_directory> <dfs_name>
+			client.delete_file(args[0], args[1])
 		elif command == 'read':
-			client.read_file(args[0], int(args[1]), int(args[2]))
+			# usage read <dfs_directory> <dfs_name>
+			client.read_file(args[0], args[1])
 		elif command == 'create':
 			# usage create <local_file> <dfs_directory> <dfs_name>
 			client.create_file(args[0], args[1], args[2])
 		elif command == 'create_dir':
+			# usage create_dir <dfs_directory> <directory_name>
 			client.create_dir(args[0], args[1])
 		elif command == 'exit':
 			client.close_connection()
 			print("Exiting...")
 			break
 		else:
-			print('Please enter a valid command')
+			print("chutiya hai kya")
