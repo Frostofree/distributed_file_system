@@ -110,7 +110,7 @@ class MasterServer():
 					sock.connect((self.host, port))
 					request = self.__respond_message("heartbeat", [])
 					sock.send(request)
-					sock.recv(config.MESSAGE_SIZE)
+					response = sock.recv(config.MESSAGE_SIZE)
 					response = json.loads(response.decode('utf-8'))
 					if response['status'] == 0:
 						print(f"Chunk Server with IP {self.host} and Port {port} is up.")
@@ -120,7 +120,6 @@ class MasterServer():
 					print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
 					sock.close()
 				except Exception as e:
-					print(sock)
 					print(e)
 					print(f"Chunk Server with IP {self.host} and Port {port} not up.")
 					sock.close()
@@ -318,6 +317,15 @@ class MasterServer():
 		return chunk_locs
 		
 
+	def __respond_message(self, function, args):
+		message = {
+			'sender_type': 'master',
+			'function': function,
+			'args': args
+		}
+		message = json.dumps(message).encode('utf-8')
+		message += b' ' * (config.MESSAGE_SIZE - len(message))
+		return message
 
 	def __respond_status(self, code, message):
 		response =  {

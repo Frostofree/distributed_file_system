@@ -16,7 +16,7 @@ class ChunkServer():
         self.present = {}
         self.lock = threading.Lock()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.host, self.port))
 
     def listen(self):
@@ -30,7 +30,7 @@ class ChunkServer():
     def service(self, client, address):
         request = client.recv(config.MESSAGE_SIZE)
         message = json.loads(request.decode('utf-8'))
-        print(message)
+
         sender_type = message["sender_type"]
         command = message["function"]
         args = message["args"]
@@ -49,7 +49,6 @@ class ChunkServer():
     def heartbeart_handler(self, client, args):
         response = self._respond_status(0, 'OK')
         client.sendall(response)
-        print("sending heartbeat ack")
         client.close()
 
     def read_chunk(self, client, args):
@@ -90,6 +89,8 @@ class ChunkServer():
             f.write(data)
 
         client.close()
+
+
 
 
     def _respond_status(self, code, message):
