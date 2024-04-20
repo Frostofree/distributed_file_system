@@ -9,6 +9,7 @@ import json
 import pickle
 
 from collections import OrderedDict
+import time
 
 
 class Directory():
@@ -49,6 +50,9 @@ class MasterServer():
 		self.sock.bind((self.host, self.port))
 		self.NUM_CHUNKS = config.NUM_CHUNKS
 		self.root = Directory('/')
+		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
+		heart_beat_thread.start()
+
 		
 
 	def listen(self):
@@ -94,6 +98,32 @@ class MasterServer():
 				print(f"Client with IP {ip} and Port {port} unexpectedly disconnected.")
 				client.close()
 				connected = False 
+
+	def heart_beat_handler(self):
+		while True:
+			time.sleep(config.HEART_BEAT_INTERVAL)
+			print("pinging servers")
+			for port in config.CHUNK_PORTS:
+				try:
+					sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+					sock.settimeout(1)
+					sock.connect((self.host, port))
+					request = self.__respond_message("heartbeat", [])
+					sock.send(request)
+					sock.recv(config.MESSAGE_SIZE)
+					response = json.loads(response.decode('utf-8'))
+					if response['status'] == 0:
+						print(f"Chunk Server with IP {self.host} and Port {port} is up.")
+					else:
+						raise Exception
+				except socket.error as e:
+					print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
+					sock.close()
+				except Exception as e:
+					print(sock)
+					print(e)
+					print(f"Chunk Server with IP {self.host} and Port {port} not up.")
+					sock.close()
 
 
 	def read_file(self, client, args):

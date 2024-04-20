@@ -42,7 +42,15 @@ class ChunkServer():
                 self.read_chunk(client, args)
             elif command == 'delete_chunk':
                 self.delete_chunk(client, args)
+        elif sender_type == 'master':
+            if command == 'heartbeat':
+                self.heartbeart_handler(client, args)
 
+    def heartbeart_handler(self, client, args):
+        response = self._respond_status(0, 'OK')
+        client.sendall(response)
+        print("sending heartbeat ack")
+        client.close()
 
     def read_chunk(self, client, args):
         data = ''
@@ -63,6 +71,7 @@ class ChunkServer():
         file_path = os.path.join(self.rootdir, args[0])
         os.remove(file_path)
         client.send(self._respond_status(0, 'Chunk deleted'))
+    
 
         
     def write_chunk(self, client, args):
