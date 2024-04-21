@@ -1,0 +1,3 @@
+')
+		words = command.split()
+		command, args = words[0], words[1

@@ -1,3 +1,0 @@
-TING = 0
-	COMMITTED = 1
-	ABORTED

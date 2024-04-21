@@ -1,3 +1,0 @@
-)
-		else:
-			self.logger.log_inf

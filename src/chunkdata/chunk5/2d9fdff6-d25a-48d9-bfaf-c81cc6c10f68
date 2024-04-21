@@ -1,0 +1,2 @@
+OCK_STREAM)
+						chunk_server.connect((socket.gethostbyname('lo

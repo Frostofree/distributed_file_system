@@ -11,8 +11,18 @@ import sys
 import json
 import pickle
 
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import time
+
+
+chunk_to_chunk_ids = defaultdict(lambda: []) # dictionary of lists
+chunk_ids_to_chunks = defaultdict(lambda: []) # dictionary of lists
+chunk_ids_to_replicate = defaultdict(lambda: []) # dictionary of lists
+alive_chunk_servers_list = [] ### initialize
+alive_chunk_servers = 0
+lock_dict = defaultdict(lambda: None)
+lock = threading.Lock()
+dead = defaultdict(lambda: False)
 
 
 class Logger():
@@ -200,32 +210,51 @@ class MasterServer():
 			time.sleep(config.HEART_BEAT_INTERVAL)
 			curr_dir = self.root
 			self.purge_chunks(curr_dir)	
+	def purge_chunks(self, curr_dir):
+		pass
 
 
 	def heart_beat_handler(self):
+		global alive_chunk_servers
+		global lock
+		global lock_dict
+		global dead
 		while True:
 			time.sleep(config.HEART_BEAT_INTERVAL)
-			for idx, port in enumerate(config.CHUNK_HEARBEAT_PORTS):
-				with self.chunk_server_locks[idx]:	
-					try:
-						sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-						sock.settimeout(1)
-						sock.connect((self.host, port))
-						request = self.__respond_message("heartbeat", [])
-						sock.send(request)
-						response = sock.recv(config.MESSAGE_SIZE)
-						response = json.loads(response.decode('utf-8'))
-						if response['status'] == 0:
-							pass
-						else:
-							raise Exception
-					except socket.error as e:
-						print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
-						sock.close()
-					except Exception as e:
-						print(e)
-						print(f"Chunk Server with IP {self.host} and Port {port} not up.")
-						sock.close()
+			for idx, port in enumerate(config.CHUNK_PORTS):	
+				try:
+					sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+					sock.settimeout(1)
+					sock.connect((self.host, port))
+					request = self.__respond_message("heartbeat", [])
+					sock.send(request)
+					response = sock.recv(config.MESSAGE_SIZE)
+					response = json.loads(response.decode('utf-8'))
+					if response['status'] == 0:
+						# print("Active!")
+						with lock:
+							if(port not in alive_chunk_servers_list):
+								alive_chunk_servers_list.append(port)
+								alive_chunk_servers += 1
+								lock_dict[port] = threading.Lock()
+								dead[port] = False
+					else:
+						raise Exception
+				except socket.error as e:
+					print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
+					sock.close()
+					if(not dead[port]):
+						with lock:
+							dead[port] = True
+						self.check_chunk_server(port)
+				except Exception as e:
+					print(e)
+					print(f"Chunk Server with IP {self.host} and Port {port} not up.")
+					sock.close()
+					if(not dead[port]):
+						with lock:
+							dead[port] = True
+						self.check_chunk_server(port)
 
 
 	def read_file(self, client, args):
@@ -369,6 +398,13 @@ class MasterServer():
 		chunk_id = self._create_chunk_id()
 		chunk_locs = self._sample_chunk_locs()
 
+		with lock:
+			print("Giving ", chunk_id, " to ", chunk_locs[0], " and ", chunk_locs[1])
+			for chunk_loc in chunk_locs:
+				chunk_to_chunk_ids[config.CHUNK_PORTS[chunk_loc]].append(chunk_id)
+			for chunk_loc in chunk_locs:
+				chunk_ids_to_chunks[chunk_id].append(config.CHUNK_PORTS[chunk_loc])
+
 		file = curr_dir.files[dfs_name]
 
 		file.chunks[chunk_id] = chunk_locs
@@ -400,8 +436,9 @@ class MasterServer():
 		else:
 			file = curr_dir.files[dfs_name]
 			file.status = FileStatus.COMMITTED
-			ip, port = self.locks[dfs_name]
-			self.locks.pop(dfs_name)
+			lock_key = str(client.getpeername()[0]) + ":" + str(client.getpeername()[1])
+			file = self.locks[lock_key]
+			self.locks.pop(lock_key)
 			file.is_locked = False
 			print(f"commited file {dfs_name} ")
 
@@ -458,7 +495,157 @@ class MasterServer():
 		response += b' ' * (config.MESSAGE_SIZE - len(response))
 		return response
 	
-	
+	def isdead(self, chunk_server):
+		global dead
+		p = 0
+		with lock:
+			if(dead[chunk_server]):
+				p = 1
+		return p
+			
+
+	def _get_message_data(self, function, *args):
+		function = function
+		message = {
+			'sender_type': 'master',
+			'function': function,
+			'args': args
+		}
+
+		# encode the message in utf8
+		encoded = json.dumps(message).encode('utf-8')
+		encoded += b' ' * (config.MESSAGE_SIZE - len(encoded))
+		return encoded
+
+	def send_replicate_message(self, chunk_loc, chunk_id, new_chunk_loc):
+		# ask chunk_loc to replicate chunk_id on to new_chunk_loc
+		# add timeout and return 0 if it times out
+		try:
+			print("Attempting to replicate chunk with chunk id: ", chunk_id, " by sending message to chunk server with port: ", chunk_loc)
+			chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			chunk_server.connect((socket.gethostbyname('localhost'), chunk_loc)) # chunk_loc here is the port number or some unique id
+			chunk_server.settimeout(1)
+			request = self._get_message_data('replicate_chunk', {"chunk_id": chunk_id, "new_chunk_loc": new_chunk_loc})	
+			chunk_server.sendall(request)
+			response = chunk_server.recv(config.MESSAGE_SIZE)
+			response = json.loads(response.decode('utf-8'))
+			# print("Chunk with chunk id: ", chunk_id, " replicated successfully")
+			print("Response status: ", response['status'])
+			return response['status']
+		except socket.timeout:
+			print("Socket operation timed out on commanding chunk server to replicate chunk id: ", chunk_id)
+			return 0
+		except socket.error:
+			print("Socket error in function send_replicate_message of master")
+		except:
+			print("An error occurred while commanding chunk server to replicate chunk id: ", chunk_id)
+			return 0
+			
+	def isspecialcase(self, chunk_id):
+		global alive_chunk_servers_list
+		global chunk_to_chunk_ids
+		global lock
+		# consider lock? 
+		p = -1
+		with lock:
+			for chunk_server in alive_chunk_servers_list:
+				if(chunk_id not in chunk_to_chunk_ids[chunk_server]):
+					p = 0
+					break
+		if(p == 0):
+			return 0
+		return 1
+
+	# chunk_loc is the chunk server from where it will be replicated
+	def replicate(self, chunk_loc, chunk_id):
+		global alive_chunk_servers
+		global chunk_to_chunk_ids
+		global lock
+		if(alive_chunk_servers <= 1):
+			return 1 # cant do better
+		# while not replicated
+		while(True):
+			# Handle case where only those chunk servers are active which already contain the chunk
+			if(self.isspecialcase(chunk_id)):
+				return 1 # cant do better
+			print("Not special case")
+			new_chunk_loc = chunk_loc
+			print("original chunk_loc: ", chunk_loc)
+			while(chunk_id in chunk_to_chunk_ids[new_chunk_loc] or self.isdead(new_chunk_loc) or chunk_loc == new_chunk_loc): ### new_chunk loc is not dead condition
+				new_chunk_loc = random.sample(config.CHUNK_PORTS, 1)[0]
+				print("Trying chunk loc: ", new_chunk_loc)
+			print("New chunk_loc: ", new_chunk_loc)
+			status = self.send_replicate_message(chunk_loc, chunk_id, new_chunk_loc)
+			# time.sleep(5)
+			if(status == 1):
+				break
+			else:
+				print("Still trying")
+		# error handling already in main function check_chunk_server
+		return status
+
+	def check_chunk_server(self, chunk_server):
+		### make all variables global
+		global lock_dict
+		global chunk_ids_to_replicate
+		global alive_chunk_servers_list
+		global alive_chunk_servers
+		global chunk_to_chunk_ids
+		global chunk_ids_to_chunks
+		count = 0
+		if(lock_dict[chunk_server] is None):
+			return # chunk_server does not exist so no need to check
+		# if(self.isdead(chunk_server)):
+		print("Chunk server on port: ", chunk_server, " died")
+		try:
+			lock_dict[chunk_server].acquire()
+			print("Got lock")
+			### repeated check
+			if(chunk_server in alive_chunk_servers_list):
+				alive_chunk_servers -= 1
+				alive_chunk_servers_list.remove(chunk_server)
+			else:
+				print("Releasing lock at line 470")
+				lock_dict[chunk_server].release()
+				return
+			with lock:
+				chunk_ids_to_replicate[chunk_server] = []
+				chunk_ids = chunk_to_chunk_ids[chunk_server]
+				chunk_ids_to_replicate[chunk_server] = chunk_ids
+				count = len(chunk_ids_to_replicate[chunk_server])
+			if(count == 0):
+				print("Nothing to replicate")
+			print("Chunk loc with the dead chunk id: ", chunk_ids_to_chunks[chunk_to_chunk_ids[chunk_server][0]][0])
+			for chunk_id in chunk_ids_to_replicate[chunk_server]:
+				for chunk_loc in chunk_ids_to_chunks[chunk_id]:
+					if(self.isdead(chunk_loc)): # itself needs replication and so is down
+						continue
+					print("Trying to replicate")
+					lock_dict[chunk_loc].acquire()
+					try:
+						status = self.replicate(chunk_loc, chunk_id)
+						if(status == 1):
+							count -= 1
+							continue
+						else:
+							print("Could not replicate chunk id: ", chunk_id)
+					except:
+						print("Error during replication of chunk id: ", chunk_id)
+					finally:
+						lock_dict[chunk_loc].release()
+			if(count > 0):
+				print("Could not replicate all chunks of chunk server: ", chunk_server)
+			# resetting the parameters to new correct configuration
+			chunk_ids_to_replicate[chunk_server] = []
+			for chunk_id in chunk_to_chunk_ids[chunk_server]:
+				chunk_ids_to_chunks[chunk_id].remove(chunk_server)
+			chunk_to_chunk_ids[chunk_server] = []
+			print("Releasing lock at line 500")
+			lock_dict[chunk_server].release()
+		except:
+			print("Error in checking dead chunk servers")
+		# else: # if alive there is no need for replication, can simply return
+		# 	return
 
 
 if __name__ == '__main__':

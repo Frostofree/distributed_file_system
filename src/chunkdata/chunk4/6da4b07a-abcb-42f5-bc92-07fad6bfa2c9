@@ -1,0 +1,4 @@
+chunk_server.sendall(data)
+
+			chunk_server.close()
+		self.mas

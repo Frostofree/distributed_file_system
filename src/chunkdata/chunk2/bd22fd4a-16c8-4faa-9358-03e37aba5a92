@@ -1,1 +1,0 @@
-_beat_thread = threading.Thread(

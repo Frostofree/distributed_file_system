@@ -46,7 +46,6 @@ class Client():
 				data = f.read(config.CHUNK_SIZE)
 
 			for chunk_loc in chunk_locs:
-				time.sleep(0.1)
 				chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 				chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[chunk_loc]))
 				request = self._get_message_data('write_chunk', chunk_id)	
@@ -71,23 +70,29 @@ class Client():
 
 		data = ''
 		final_success = True
-		for id, locs in zip(chunk_ids, chunks_locs):
+		for id, locs_string in zip(chunk_ids, chunks_locs):
+			locs = locs_string.strip('][').strip(',').split(', ')
 			success = False
 			for loc in locs:
+
 				if success == False:
 					try:
 						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
+						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[int(loc)]))
 						request = self._get_message_data('read_chunk', id)	
 						chunk_server.sendall(request)
 						response = chunk_server.recv(config.MESSAGE_SIZE)
 						response = json.loads(response.decode('utf-8'))
 						if response['status'] == -1:
+							print("line 85")
 							success = False
 						else:
 							data += response['data']
 							success = True
-					except:
+					except Exception as e:
+						print(loc)
+						print(e)
+						print("line 91")
 						success = False
 				else:
 					break

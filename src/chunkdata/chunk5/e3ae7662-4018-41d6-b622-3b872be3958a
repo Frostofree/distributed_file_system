@@ -1,0 +1,2 @@
+oads(response.decode('utf-8'))
+			chunk_id = response['chunk_id'

@@ -1,0 +1,2 @@
+ps(message).encode('utf-8')
+		encoded += b' ' * (config.MESSAGE_

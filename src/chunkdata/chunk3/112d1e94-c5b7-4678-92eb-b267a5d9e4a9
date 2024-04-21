@@ -1,0 +1,2 @@
+a('write_chunk', chunk_id)	
+				chunk_server.sendall(request)

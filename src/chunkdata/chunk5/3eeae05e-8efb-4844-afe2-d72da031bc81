@@ -1,0 +1,3 @@
+rgs[1])
+		elif command == 'read':
+			# usage read <dfs_directory

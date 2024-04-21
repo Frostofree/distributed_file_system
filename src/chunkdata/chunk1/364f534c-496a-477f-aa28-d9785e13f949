@@ -1,2 +1,0 @@
-Logger(config.MASTER_LOG)
-		self

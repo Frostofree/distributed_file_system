@@ -1,0 +1,7 @@
+ter.sendall(request)
+			self.master.close()
+
+
+
+
+	def _get_messag

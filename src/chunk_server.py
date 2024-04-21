@@ -45,6 +45,13 @@ class ChunkServer():
         elif sender_type == 'master':
             if command == 'heartbeat':
                 self.heartbeart_handler(client, args)
+            if command == 'replicate_chunk':
+                print("Chunk server recieved message")
+                self.replicate_chunk(client, args)
+        elif sender_type == 'chunk_server':
+            if command == "write_chunk":
+                print(args)
+                self.write_chunk(client, args)
 
     def heartbeart_handler(self, client, args):
         response = self._respond_status(0, 'OK')
@@ -101,6 +108,86 @@ class ChunkServer():
         response += b' ' * (config.MESSAGE_SIZE - len(response))
         return response
     
+    def _response_message(self, code):
+
+        response =  {
+			'status': code,
+		}
+        response = json.dumps(response).encode('utf-8')
+        response += b' ' * (config.MESSAGE_SIZE - len(response))
+        return response
+
+    def _get_message_data(self, function, *args):
+        function = function
+        message = {
+            'sender_type': 'chunk_server',
+            'function': function,
+            'args': args
+        }
+
+        # encode the message in utf8
+        encoded = json.dumps(message).encode('utf-8')
+        encoded += b' ' * (config.MESSAGE_SIZE - len(encoded))
+        return encoded
+
+    def read_chunk2(self, id):
+        data = ''
+        print("Id is: ", id)
+        print("Root directory is: ", self.rootdir)
+        with open(os.path.join(self.rootdir, id), 'rb') as f:
+            data = f.read()
+
+        return data
+    
+    # recieve on chunk server side and handle final reply to master in master.py 
+    def send_chunk_data_to_new_chunk_server(self, chunk_id, new_chunk_loc):
+        print("new chunk loc is: ", new_chunk_loc)
+        data = self.read_chunk2(chunk_id)
+        print("Trying to send data: ", data, " to port: ", new_chunk_loc)
+        try:
+            new_chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            new_chunk_server.connect((socket.gethostbyname('localhost'), new_chunk_loc))
+            new_chunk_server.settimeout(1)
+            request = self._get_message_data('write_chunk', chunk_id)	
+            new_chunk_server.sendall(request)
+            print("Request sent")
+            new_chunk_server.sendall(data)
+            print("Data sent")
+        except socket.timeout:
+            print("Socket operation timed out on sending data corresponding to chunk_id: ", chunk_id)
+            return 0
+        except socket.error:
+            print("Socket error occured.")
+            return 0
+        except Exception as e:
+            print("Chunk to chunk message passing failed")
+            print("With error: ", e)
+            return 0
+        return 1
+
+    def replicate_chunk(self, client, args):
+        dict_data = args[0] # {chunk_id, new_chunk_loc}
+        print("args[0] is: ", args[0])
+        try:
+            # status = 1
+            status = self.send_chunk_data_to_new_chunk_server(dict_data["chunk_id"], dict_data["new_chunk_loc"])
+            # time.sleep(5)
+            if(status == 0):
+                print("Status 0 returned. Something went wrong")
+                # return 0 to master
+                response = self._response_message(0)
+            # reply 1 to master
+            else:
+                response = self._response_message(1)
+        except:
+            print("Something went wrong.")
+            response = self._response_message(0)
+            # return 0 to master
+        
+        try:
+            client.sendall(response)
+        except:
+            print("Sending reply to master failed")
 
 
 if __name__ == '__main__':

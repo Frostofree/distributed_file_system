@@ -1,0 +1,2 @@
+ter.recv(config.MESSAGE_SIZE)
+		response = json.loads(response.d

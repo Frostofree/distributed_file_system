@@ -1,0 +1,2 @@
+get_message_data('read_file', dfs_dir, dfs_name)
+		self.master.s

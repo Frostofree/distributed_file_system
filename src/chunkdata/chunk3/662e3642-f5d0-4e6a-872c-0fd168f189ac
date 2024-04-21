@@ -1,0 +1,3 @@
+h, 'rb') as f:
+				f.seek(chunk * config.CHUNK_SIZE)
+				data =

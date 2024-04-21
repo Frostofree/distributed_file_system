@@ -1,0 +1,2 @@
+nse = self.master.recv(config.MESSAGE_SIZE)
+			response = json.l

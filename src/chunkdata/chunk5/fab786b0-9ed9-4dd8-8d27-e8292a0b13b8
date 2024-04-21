@@ -1,0 +1,3 @@
+n zip(chunk_ids, chunks_locs):
+			for loc in locs:
+				chunk_ser

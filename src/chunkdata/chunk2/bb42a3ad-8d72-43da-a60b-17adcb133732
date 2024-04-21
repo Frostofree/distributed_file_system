@@ -1,0 +1,4 @@
+nks_locs.append(response['chunk_loc'])
+
+		data = ''
+		final_succ

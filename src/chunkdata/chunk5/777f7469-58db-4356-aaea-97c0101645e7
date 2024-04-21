@@ -1,0 +1,3 @@
+> <dfs_name>
+			client.read_file(args[0], args[1])
+		elif comman

@@ -1,0 +1,2 @@
+d == 'create':
+			# usage create <local_file> <dfs_directory> <d

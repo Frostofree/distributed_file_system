@@ -1,0 +1,2 @@
+command == 'create_dir':
+			# usage create_dir <dfs_directory>

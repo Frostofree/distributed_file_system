@@ -1,1 +1,0 @@
-except socket.error as e:

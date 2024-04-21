@@ -1,0 +1,2 @@
+ytes = os.path.getsize(local_path)
+		chunks = num_bytes // confi
