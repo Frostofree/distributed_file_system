@@ -479,6 +479,7 @@ class MasterServer():
 		curr_dir.files.pop(file_name)
 		self.logger.log_info('delete', [args[0], args[1]])
 		client.send(self.__respond_status(0, 'File Deleted'))
+		print("here")
 
 
 	def close_connection(self, client):
