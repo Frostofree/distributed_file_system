@@ -82,14 +82,17 @@ class Logger():
 						for d in directory: 
 							curr_dir = curr_dir.subdirectories[d]
 						curr_dir.add_file(file_name)
+						file = curr_dir.files[file_name]
+						file.status = FileStatus.CREATING
+
 					elif command == 'create_dir':
 						dir_loc, new_dir = line[1], line[2]
-						print(dir_loc, new_dir)
 						dir_loc = [part for part in dir_loc.split('/') if part]
 						curr_dir = self.root
 						for d in dir_loc:
 							curr_dir = curr_dir.subdirectories[d]
 						curr_dir.subdirectories[new_dir] = Directory(curr_dir.dfs_path + '/' + new_dir)
+
 					elif command == 'set_chunk_loc':
 						dfs_dir, dfs_name = line[1], line[2]
 						directory = [part for part in dfs_dir.split('/') if part]
@@ -99,6 +102,7 @@ class Logger():
 						chunk_id, chunk_locs = line[3], line[4]
 						file = curr_dir.files[dfs_name]
 						file.chunks[chunk_id] = chunk_locs
+
 					elif command == 'delete':
 						directory, file_name = line[1], line[2]
 						directory = [part for part in directory.split('/') if part]
@@ -106,8 +110,24 @@ class Logger():
 						for d in directory: 
 							curr_dir = curr_dir.subdirectories[d]
 						file = curr_dir.files[file_name]
-						curr_dir.files.pop(file_name)
+						file.status = FileStatus.DELETED
 
+					elif command == 'commit_file':
+						directory, file_name = line[1], line[2]
+						directory = [part for part in dir.split('/') if part]
+						curr_dir = self.root
+						for d in directory:
+							curr_dir = curr_dir.subdirectories[d]
+						file = curr_dir.files[file_name]
+						file.status = FileStatus.COMMITTED
+
+					elif command == 'commit_delete':
+						directory, file_name = line[1], line[2]
+						directory = [part for part in dir.split('/') if part]
+						curr_dir = self.root
+						for d in directory:
+							curr_dir = curr_dir.subdirectories[d]
+						curr_dir.files.pop(file_name)
 
 
 	def log_info(self, command, args):
@@ -119,6 +139,11 @@ class Logger():
 			self.log.info(f'set_chunk_loc {args[0]} {args[1]} {args[2]} {args[3]}')
 		elif command == 'delete':
 			self.log.info(f'delete {args[0]} {args[1]}')
+		elif command == 'commit_file':
+			self.log.info(f'commit_file {args[0]} {args[1]}')
+		elif command == 'commit_delete':
+			self.log.info(f'commit_delete {args[0]} {args[1]}')
+
 
 class FileStatus():
 	CREATING = 0
@@ -145,6 +170,7 @@ class File():
 		self.chunks = {}
 		self.status = None
 		self.is_locked = False
+
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
 
@@ -302,9 +328,11 @@ class MasterServer():
 
 		data = list(curr_dir.files.keys())
 		data = [file for file in data if curr_dir.files[file].status == FileStatus.COMMITTED]
+		directories = list(curr_dir.subdirectories.keys())
 		response = {
 			'status': 0,
-			'data': data
+			'data': data,
+			'directories': directories
 		}
 
 		response = json.dumps(response).encode('utf-8')
@@ -438,6 +466,7 @@ class MasterServer():
 		ip, port = client.getpeername()
 		lock_key = str(ip) + str(port)
 		self.client_to_file_lock.__delitem__(lock_key)
+		self.logger.log_info('commit_file', [args[0], args[1]])
 		print(f"File {file_name} committed by client {ip}:{port}")
 
 
@@ -477,7 +506,7 @@ class MasterServer():
 		lock_key = str(ip) + str(port)
 		self.client_to_file_lock.__delitem__(lock_key)
 		curr_dir.files.pop(file_name)
-		self.logger.log_info('delete', [args[0], args[1]])
+		self.logger.log_info('commit_delete', [args[0], args[1]])
 		client.send(self.__respond_status(0, 'File Deleted'))
 		print("here")
 

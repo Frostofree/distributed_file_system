@@ -156,6 +156,8 @@ class Client():
 				return
 			for file in response['data']:
 				print(file)
+			for directory in response['directories']:
+				print(directory+'/')
 		except Exception as e:
 			self.master.close()
 			self.master_dead = True
@@ -250,6 +252,7 @@ if __name__ == '__main__':
 				client.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 				client.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 				client.master_dead = False
+				print('Connected to Master!')
 			except:
 				time.sleep(2)
 				print('Master currently down. Reconnecting...')
