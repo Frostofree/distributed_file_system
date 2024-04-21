@@ -23,6 +23,7 @@ class Client():
 		print(response['message'])
 
 	def create_file(self, local_path, dfs_dir, dfs_name):
+		print(local_path, dfs_dir, dfs_name)
 		request = self._get_message_data('create_file', dfs_dir, dfs_name)
 		self.master.sendall(request)
 		response = self.master.recv(config.MESSAGE_SIZE)
@@ -63,7 +64,6 @@ class Client():
 		while True:
 			response = self.master.recv(config.MESSAGE_SIZE)
 			response = json.loads(response.decode('utf-8'))
-			print(response)
 			if response['status'] == 1:
 				break
 			chunk_ids.append(response['chunk_id'])
@@ -72,13 +72,11 @@ class Client():
 		data = ''
 		final_success = True
 		for id, locs in zip(chunk_ids, chunks_locs):
-			print(type(locs))
-			print(locs)
 			success = False
 			for loc in locs:
-
 				if success == False:
 					try:
+						time.sleep(0.1)
 						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[int(loc)]))
 						request = self._get_message_data('read_chunk', id)	
@@ -104,7 +102,9 @@ class Client():
 		
 		if final_success == False:
 			print("Can't read file now. Try again later")
+			self.master.send(self._get_status_data(-1, "Can't read file now. Try again later"))
 		else:
+			self.master.send(self._get_status_data(0, "ok"))
 			print(data)
 		
 	
@@ -122,6 +122,7 @@ class Client():
 
 
 	def delete_file(self, dfs_dir, dfs_name):
+		fail = False
 
 		request = self._get_message_data('delete_file', dfs_dir, dfs_name)
 		self.master.sendall(request)
@@ -129,41 +130,36 @@ class Client():
 		while True:
 			response = self.master.recv(config.MESSAGE_SIZE)
 			response = json.loads(response.decode('utf-8'))
-			if response['status'] == 1:
+			if response['status'] == -1:
+				print(response)
+				fail = True
 				break
 			chunk_ids.append(response['chunk_id'])
 			chunks_locs.append(response['chunk_loc'])
-
-		for id, locs in zip(chunk_ids, chunks_locs):
-			for loc in locs:
-				chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-				chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
-				request = self._get_message_data('delete_chunk', id)	
-				chunk_server.sendall(request)
-				response = chunk_server.recv(config.MESSAGE_SIZE)
-				response = json.loads(response.decode('utf-8'))
-				if response['status'] == -1:
-					print(response['message'])
-					return
-				chunk_server.close()
-		self.master.send(self._get_message_data("commit_delete", dfs_dir, dfs_name))
-		self.master.recv(config.MESSAGE_SIZE)
-		if response['status'] != 0:
-			print(response['message'])
-		else:
-			print(response['message'])
-
-
-
-		
+		if not fail:
+			for id, locs in zip(chunk_ids, chunks_locs):
+				for loc in locs:
+					chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+					chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
+					request = self._get_message_data('delete_chunk', id)	
+					chunk_server.sendall(request)
+					response = chunk_server.recv(config.MESSAGE_SIZE)
+					response = json.loads(response.decode('utf-8'))
+					if response['status'] == -1:
+						print(response['message'])
+						return
+					chunk_server.close()
+			self.master.send(self._get_message_data("commit_delete", dfs_dir, dfs_name))
+			self.master.recv(config.MESSAGE_SIZE)
+			if response['status'] != 0:
+				print(response['message'])
+			else:
+				print(f"Deleted {dfs_name}")
 
 	def close_connection(self):
 			request = self._get_message_data('close', '')
 			self.master.sendall(request)
 			self.master.close()
-
-
-
 
 	def _get_message_data(self, function, *args):
 		function = function
@@ -172,12 +168,24 @@ class Client():
 			'function': function,
 			'args': args
 		}
-
-		# encode the message in utf8
 		encoded = json.dumps(message).encode('utf-8')
 		encoded += b' ' * (config.MESSAGE_SIZE - len(encoded))
 		return encoded
 
+
+
+	def _get_status_data(self, status, message):
+		message = {
+			'status': status,
+			'message': message
+		}
+		encoded = json.dumps(message).encode('utf-8')
+		encoded += b' ' * (config.MESSAGE_SIZE - len(encoded))
+		return encoded
+
+
+
+		
 			
 
 		

@@ -11,18 +11,50 @@ import sys
 import json
 import pickle
 
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 import time
 
+import threading
 
-chunk_to_chunk_ids = defaultdict(lambda: []) # dictionary of lists
-chunk_ids_to_chunks = defaultdict(lambda: []) # dictionary of lists
-chunk_ids_to_replicate = defaultdict(lambda: []) # dictionary of lists
-alive_chunk_servers_list = [] ### initialize
-alive_chunk_servers = 0
-lock_dict = defaultdict(lambda: None)
-lock = threading.Lock()
-dead = defaultdict(lambda: False)
+class SynchronizedDict:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._dictionary = {}
+
+    def __getitem__(self, key):
+        return self._dictionary[key]
+
+    def __setitem__(self, key, value):
+        with self._lock:
+            self._dictionary[key] = value
+
+    def __delitem__(self, key):
+        with self._lock:
+            del self._dictionary[key]
+
+    def __len__(self):
+        return len(self._dictionary)
+
+    def keys(self):
+        return list(self._dictionary.keys())
+
+    def values(self):
+        return list(self._dictionary.values())
+
+    def items(self):
+        return list(self._dictionary.items())
+
+# # Example usage:
+# sync_dict = SynchronizedDict()
+
+# sync_dict['key1'] = 'value1'
+# sync_dict['key2'] = 'value2'
+
+# print(sync_dict['key1'])  # Output: value1
+
+# with sync_dict._lock:
+#     del sync_dict['key2']
+
 
 
 class Logger():
@@ -32,6 +64,7 @@ class Logger():
 		self.log.setLevel(logging.INFO)
 		self.root = Directory('/')
 		self.restore(log_file)
+
 
 	def restore(self, log_file):
 		if os.path.exists(log_file):
@@ -87,6 +120,11 @@ class Logger():
 		elif command == 'delete':
 			self.log.info(f'delete {args[0]} {args[1]}')
 
+class FileStatus():
+	CREATING = 0
+	COMMITTED = 1
+	ABORTED = 2
+	DELETED = 3
 
 
 class Directory():
@@ -98,11 +136,6 @@ class Directory():
 	def add_file(self, name: str):
 		path = self.dfs_path + '/' + name
 		self.files[name] = File(name, path)
-class FileStatus():
-	CREATING = 0
-	COMMITTED = 1
-	ABORTED = 2
-	DELETED = 3
 
 class File():
 	def __init__(self, name, dfs_path: str):
@@ -112,8 +145,6 @@ class File():
 		self.chunks = {}
 		self.status = None
 		self.is_locked = False
-	
-
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
 
@@ -127,12 +158,14 @@ class MasterServer():
 		self.NUM_CHUNKS = config.NUM_CHUNKS
 		self.logger = Logger(config.MASTER_LOG)
 		self.root = self.logger.root
+		self.lock_map = {} # maps key: ip+port as string to file object
 		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
-		heart_beat_thread.start()	
-		self.locks = {} #clientip+port to file object
-		self.connected_clients = [] # list of currently connected clients
+		heart_beat_thread.start()
+		self.client_to_file_lock = SynchronizedDict()
+
 		
-		
+	def is_alive(self, client):
+		client.send(self.__respond_status(0, 'Alive'))
 
 	def listen(self):
 		self.sock.listen()
@@ -143,14 +176,9 @@ class MasterServer():
 
 	def service(self, client, address):
 		ip, port = address
-		self.connected_clients.append((ip, port))
 		connected = True
-		current_command = None
-		current_args = None
 		while connected:
 			try:
-				current_command = None
-				current_args = None
 				message = client.recv(config.MESSAGE_SIZE)
 				if message == b'':
 					raise socket.error
@@ -160,9 +188,6 @@ class MasterServer():
 					command = message['function']
 					args = message['args']
 
-					current_command = command
-					current_args = args
-
 				if sender_type == 'client':
 					if command == 'create_file':
 						self.create_file(client, args)
@@ -170,8 +195,6 @@ class MasterServer():
 						self.set_chunk_loc(client, args)
 					elif command == 'commit_file':
 						self.commit_file(client, args)
-					elif command == 'commit_delete':
-						self.commit_delete(client, args)
 					elif command == 'create_dir':
 						self.create_dir(client, args)
 					elif command == 'read_file':
@@ -180,100 +203,47 @@ class MasterServer():
 						self.list_files(client, args)
 					elif command == 'delete_file':
 						self.delete_file(client, args)
+					elif command == 'commit_delete':
+						self.commit_delete(client, args)
 					elif command == 'close':
 						self.close_connection(client)
 						connected = False
 						print(f"Client with IP {ip} and Port {port} disconnected.")
-
+						
 			except socket.error:
 				print(f"Client with IP {ip} and Port {port} unexpectedly disconnected.")
-				connected = False 
-				self.connected_clients.remove((ip, port))
-				# check if the client was holding any file locks 
-			
-
-				to_pop = None
-				for key, file in self.locks.items():
-					lock_ip, lock_port = key.split(':')
-					str_port = str(port)	
-					print(type(lock_ip), type(ip), type(lock_port), type(port))
-					if lock_ip == ip and lock_port == str_port:
-						to_pop = key						
-						file.status = FileStatus.ABORTED
-						print(f"File {file.name} lock released")
-						print(f"Aborted file {file.name}")
-				self.locks.pop(to_pop)
 				client.close()
-	
+				connected = False 
 
 	def heart_beat_handler(self):
-		global alive_chunk_servers
-		global lock
-		global lock_dict
-		global dead
 		while True:
 			time.sleep(config.HEART_BEAT_INTERVAL)
-			for idx, port in enumerate(config.CHUNK_PORTS):	
+			for port in config.CHUNK_PORTS:
 				try:
 					sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-					sock.settimeout(20)
+					sock.settimeout(1)
 					sock.connect((self.host, port))
 					request = self.__respond_message("heartbeat", [])
 					sock.send(request)
 					response = sock.recv(config.MESSAGE_SIZE)
 					response = json.loads(response.decode('utf-8'))
 					if response['status'] == 0:
-						# print("Active!")
-						with lock:
-							if(port not in alive_chunk_servers_list):
-								alive_chunk_servers_list.append(port)
-								alive_chunk_servers += 1
-								lock_dict[port] = threading.Lock()
-								dead[port] = False
+						pass
 					else:
 						raise Exception
 				except socket.error as e:
 					print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
 					sock.close()
-					if(not dead[port]):
-						with lock:
-							dead[port] = True
-						self.check_chunk_server(port)
 				except Exception as e:
 					print(e)
 					print(f"Chunk Server with IP {self.host} and Port {port} not up.")
 					sock.close()
-					if(not dead[port]):
-						with lock:
-							dead[port] = True
-						self.check_chunk_server(port)
-			curr_dir = self.root
-			self.purge_chunks(curr_dir)
-
-	def purge_chunks(self, dir):
-		for file_name in dir.files:
-			file = dir.files[file_name]
-			if not file.is_locked:
-				if file.status in [FileStatus.CREATING, FileStatus.DELETED, FileStatus.ABORTED]:
-					for chunk_id, chunk_locs in file.chunks.items():
-						for chunk_loc in chunk_locs:
-							try:
-								sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-								sock.connect((self.host, config.CHUNK_PORTS[chunk_loc]))
-								request = self._get_message_data('delete_chunk', chunk_id)
-								sock.sendall(request)
-								response = sock.recv(config.MESSAGE_SIZE)
-								response = json.loads(response.decode('utf-8'))
-								if response['status'] == -1:
-									pass
-								sock.close()
-							except Exception as e:
-								pass
 
 
 	def read_file(self, client, args):
 		directory = args[0]
 		file_name = args[1]
+
 
 		directory = [part for part in directory.split('/') if part]
 		curr_dir = self.root
@@ -286,11 +256,15 @@ class MasterServer():
 
 		if file_name not in curr_dir.files:
 			client.send(self.__respond_status(-1, 'File does not exist'))
-			return
 		else:
 			file = curr_dir.files[file_name]
 			if file.status != FileStatus.COMMITTED:
-				client.send(self.__respond_status(-1, "File is not committed, will be purged"))
+				client.send(self.__respond_status(-1, 'File not committed'))
+				return
+			ip, port = client.getpeername()
+			lock_key = str(ip) + str(port)
+			self.client_to_file_lock.__setitem__(lock_key, file)
+			print(f"locked file {lock_key}")
 			for id, loc in file.chunks.items():
 				response = {
 					'status': 0,
@@ -302,25 +276,16 @@ class MasterServer():
 				client.send(response)
 
 			client.send(self.__respond_status(1, 'Done'))
-	def commit_delete(self, client, args):
-		dir = args[0]
-		file = args[1]
-		directory = [part for part in dir.split('/') if part]
-		curr_dir = self.root
-		for d in directory:
-			if d not in curr_dir.subdirectories:
-				client.send(self.__respond_status(-1, 'Directory does not exist'))
-				return
-			curr_dir = curr_dir.subdirectories[d]
-		if file not in curr_dir.files.keys():
-			client.send(self.__respond_status(-1, 'File does not exist'))
-			return
-		else:
-			curr_dir.files.pop(file)
-			client.send(self.__respond_status(0, 'Done'))
-		print(f"Deleted file {file}")
-		
-		
+			response = client.recv(config.MESSAGE_SIZE)
+			response = json.loads(response.decode('utf-8'))
+			if response['status'] == 0:
+				self.client_to_file_lock.__delitem__(lock_key)
+				print(f"unlocked file {lock_key}")
+			else:
+				print(response['message'])
+				self.client_to_file_lock.__delitem__(lock_key)
+				print(f"unlocked file {lock_key}")
+
 
 
 	def list_files(self, client, args):
@@ -336,7 +301,6 @@ class MasterServer():
 			curr_dir = curr_dir.subdirectories[d]
 
 		data = list(curr_dir.files.keys())
-		# remove the files that are not committed
 		data = [file for file in data if curr_dir.files[file].status == FileStatus.COMMITTED]
 		response = {
 			'status': 0,
@@ -366,8 +330,24 @@ class MasterServer():
 			client.send(self.__respond_status(-1, 'File does not exist'))
 		else:
 			file = curr_dir.files[file_name]
+			if file.status != FileStatus.COMMITTED:
+				client.send(self.__respond_status(-1, 'File not committed'))
+				return
+			ip, port = client.getpeername()
+			lock_key = str(ip) + str(port)
+
+			# print the entire client to file lock map
+			print(self.client_to_file_lock.items())
+
+
+			# check if any client is currently has locked the file 
+			for key in self.client_to_file_lock.keys():
+				if self.client_to_file_lock.__getitem__(key) == file:
+					client.send(self.__respond_status(-1, 'File is locked by another client'))
+					return
+				
+			self.client_to_file_lock.__setitem__(lock_key, file)
 			file.status = FileStatus.DELETED
-			curr_dir.files.pop(file_name)#
 			for id, loc in file.chunks.items():
 				
 				response = {
@@ -381,7 +361,6 @@ class MasterServer():
 
 			self.logger.log_info('delete', [args[0], args[1]])
 			client.send(self.__respond_status(1, 'Done'))
-
 
 	def create_file(self, client, args):
 		directory = args[0]
@@ -397,28 +376,28 @@ class MasterServer():
 			curr_dir = curr_dir.subdirectories[d]
 
 		if file_name in curr_dir.files:
-			client.send(self.__respond_status(-1, 'File already exists'))
+			# get the file object 
+			file = curr_dir.files[file_name]
+			if file.status == FileStatus.COMMITTED:	
+				client.send(self.__respond_status(-1, 'File already exists'))
+			else:
+				client.send(self.__respond_status(-1, 'File is being written by another user'))
 		else:
 			curr_dir.add_file(file_name)
-			print(f"added file {file_name}")
 			file = curr_dir.files[file_name]
 			file.status = FileStatus.CREATING
 			ip, port = client.getpeername()
-			lock_key = str(ip) + ":" + str(port)
-			self.locks[lock_key] = file
-			file.is_locked = True
+			print(f"added file {file_name} from client {ip}:{port}")
 			self.logger.log_info('create', [args[0], args[1]])
 			client.send(self.__respond_status(0, 'File Created'))
-
-
+			lock_key = str(ip) + str(port)
+			self.client_to_file_lock.__setitem__(lock_key, file)
 
 	def set_chunk_loc(self, client, args):
 		dfs_dir = args[0]
 		dfs_name = args[1]
-
 		directory = [part for part in dfs_dir.split('/') if part]
 		curr_dir = self.root
-		
 		for d in directory: 
 			if d not in curr_dir.subdirectories:
 				client.send(self.__respond_status(-1, 'Directory does not exist'))
@@ -427,20 +406,12 @@ class MasterServer():
 
 		if dfs_name not in curr_dir.files:
 			client.send(self.__respond_status(-1, 'File does not exist'))
-		
 		chunk_id = self._create_chunk_id()
 		chunk_locs = self._sample_chunk_locs()
-
-		with lock:
-			for chunk_loc in chunk_locs:
-				chunk_to_chunk_ids[config.CHUNK_PORTS[chunk_loc]].append(chunk_id)
-			for chunk_loc in chunk_locs:
-				chunk_ids_to_chunks[chunk_id].append(config.CHUNK_PORTS[chunk_loc])
 
 		file = curr_dir.files[dfs_name]
 
 		file.chunks[chunk_id] = chunk_locs
-
 		response = {
 			'chunk_id': chunk_id,
 			'chunk_locs': chunk_locs
@@ -450,29 +421,24 @@ class MasterServer():
 		response = json.dumps(response).encode('utf-8')
 		response += b' ' * (config.MESSAGE_SIZE - len(response))
 		client.send(response)
-	def commit_file(self, client, args):
-		dfs_dir = args[0]
-		dfs_name = args[1]
 
-		directory = [part for part in dfs_dir.split('/') if part]
+	def commit_file(self, client, args):
+		dir = args[0]
+		file_name = args[1]
+		directory = [part for part in dir.split('/') if part]
 		curr_dir = self.root
-		
-		for d in directory: 
+		for d in directory:
 			if d not in curr_dir.subdirectories:
 				client.send(self.__respond_status(-1, 'Directory does not exist'))
 				return
 			curr_dir = curr_dir.subdirectories[d]
+		file = curr_dir.files[file_name]
+		file.status = FileStatus.COMMITTED
+		ip, port = client.getpeername()
+		lock_key = str(ip) + str(port)
+		self.client_to_file_lock.__delitem__(lock_key)
+		print(f"File {file_name} committed by client {ip}:{port}")
 
-		if dfs_name not in curr_dir.files:
-			client.send(self.__respond_status(-1, 'File does not exist'))
-		else:
-			file = curr_dir.files[dfs_name]
-			file.status = FileStatus.COMMITTED
-			lock_key = str(client.getpeername()[0]) + ":" + str(client.getpeername()[1])
-			file = self.locks[lock_key]
-			self.locks.pop(lock_key)
-			file.is_locked = False
-			print(f"commited file {dfs_name} ")
 
 	def create_dir(self, client, args):
 		dir_loc = args[0]
@@ -494,6 +460,24 @@ class MasterServer():
 			self.logger.log_info('create_dir', [args[0], args[1]])
 			curr_dir.subdirectories[new_dir] = Directory(curr_dir.dfs_path + '/' + new_dir)
 			client.send(self.__respond_status(0, 'Directory Created'))
+		
+	def commit_delete(self, client, args):
+		dir = args[0]
+		file_name = args[1]
+		directory = [part for part in dir.split('/') if part]
+		curr_dir = self.root
+		for d in directory:
+			if d not in curr_dir.subdirectories:
+				client.send(self.__respond_status(-1, 'Directory does not exist'))
+				return
+			curr_dir = curr_dir.subdirectories[d]
+		file = curr_dir.files[file_name]
+		ip, port = client.getpeername()
+		lock_key = str(ip) + str(port)
+		self.client_to_file_lock.__delitem__(lock_key)
+		curr_dir.files.pop(file_name)
+		self.logger.log_info('delete', [args[0], args[1]])
+		client.send(self.__respond_status(0, 'File Deleted'))
 
 
 	def close_connection(self, client):
@@ -527,155 +511,7 @@ class MasterServer():
 		response += b' ' * (config.MESSAGE_SIZE - len(response))
 		return response
 	
-	def isdead(self, chunk_server):
-		global dead
-		p = 0
-		with lock:
-			if(dead[chunk_server]):
-				p = 1
-		return p
-			
-
-	def _get_message_data(self, function, *args):
-		function = function
-		message = {
-			'sender_type': 'master',
-			'function': function,
-			'args': args
-		}
-
-		# encode the message in utf8
-		encoded = json.dumps(message).encode('utf-8')
-		encoded += b' ' * (config.MESSAGE_SIZE - len(encoded))
-		return encoded
-
-	def send_replicate_message(self, chunk_loc, chunk_id, new_chunk_loc):
-		# ask chunk_loc to replicate chunk_id on to new_chunk_loc
-		# add timeout and return 0 if it times out
-		try:
-			chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			chunk_server.connect((socket.gethostbyname('localhost'), chunk_loc)) # chunk_loc here is the port number or some unique id
-			# chunk_server.settimeout(1)
-			request = self._get_message_data('replicate_chunk', {"chunk_id": chunk_id, "new_chunk_loc": new_chunk_loc})	
-			chunk_server.sendall(request)
-			response = chunk_server.recv(config.MESSAGE_SIZE)
-			response = json.loads(response.decode('utf-8'))
-			# print("Chunk with chunk id: ", chunk_id, " replicated successfully")
-			return response['status']
-		except socket.timeout:
-			print("Socket operation timed out on commanding chunk server to replicate chunk id: ", chunk_id)
-			return 0
-		except socket.error:
-			print("Socket error in function send_replicate_message of master")
-		except:
-			print("An error occurred while commanding chunk server to replicate chunk id: ", chunk_id)
-			return 0
-			
-	def isspecialcase(self, chunk_id):
-		global alive_chunk_servers_list
-		global chunk_to_chunk_ids
-		global lock
-		# consider lock? 
-		p = -1
-		with lock:
-			for chunk_server in alive_chunk_servers_list:
-				if(chunk_id not in chunk_to_chunk_ids[chunk_server]):
-					p = 0
-					break
-		if(p == 0):
-			return 0
-		return 1
-
-	# chunk_loc is the chunk server from where it will be replicated
-	def replicate(self, chunk_loc, chunk_id):
-		global alive_chunk_servers
-		global chunk_to_chunk_ids
-		global lock
-		if(alive_chunk_servers <= 1):
-			return 1 # cant do better
-		# while not replicated
-		while(True):
-			# Handle case where only those chunk servers are active which already contain the chunk
-			if(self.isspecialcase(chunk_id)):
-				return 1 # cant do better
-			print("Not special case")
-			new_chunk_loc = chunk_loc
-			print("original chunk_loc: ", chunk_loc)
-			while(chunk_id in chunk_to_chunk_ids[new_chunk_loc] or self.isdead(new_chunk_loc) or chunk_loc == new_chunk_loc): ### new_chunk loc is not dead condition
-				new_chunk_loc = random.sample(config.CHUNK_PORTS, 1)[0]
-				print("Trying chunk loc: ", new_chunk_loc)
-			print("New chunk_loc: ", new_chunk_loc)
-			status = self.send_replicate_message(chunk_loc, chunk_id, new_chunk_loc)
-			# time.sleep(5)
-			if(status == 1):
-				break
-			else:
-				print("Still trying")
-		# error handling already in main function check_chunk_server
-		return status
-
-	def check_chunk_server(self, chunk_server):
-		### make all variables global
-		global lock_dict
-		global chunk_ids_to_replicate
-		global alive_chunk_servers_list
-		global alive_chunk_servers
-		global chunk_to_chunk_ids
-		global chunk_ids_to_chunks
-		count = 0
-		if(lock_dict[chunk_server] is None):
-			return # chunk_server does not exist so no need to check
-		# if(self.isdead(chunk_server)):
-		print("Chunk server on port: ", chunk_server, " died")
-		try:
-			lock_dict[chunk_server].acquire()
-			print("Got lock")
-			### repeated check
-			if(chunk_server in alive_chunk_servers_list):
-				alive_chunk_servers -= 1
-				alive_chunk_servers_list.remove(chunk_server)
-			else:
-				print("Releasing lock at line 470")
-				lock_dict[chunk_server].release()
-				return
-			with lock:
-				chunk_ids_to_replicate[chunk_server] = []
-				chunk_ids = chunk_to_chunk_ids[chunk_server]
-				chunk_ids_to_replicate[chunk_server] = chunk_ids
-				count = len(chunk_ids_to_replicate[chunk_server])
-			if(count == 0):
-				print("Nothing to replicate")
-			print("Chunk loc with the dead chunk id: ", chunk_ids_to_chunks[chunk_to_chunk_ids[chunk_server][0]][0])
-			for chunk_id in chunk_ids_to_replicate[chunk_server]:
-				for chunk_loc in chunk_ids_to_chunks[chunk_id]:
-					if(self.isdead(chunk_loc)): # itself needs replication and so is down
-						continue
-					print("Trying to replicate")
-					lock_dict[chunk_loc].acquire()
-					try:
-						status = self.replicate(chunk_loc, chunk_id)
-						if(status == 1):
-							count -= 1
-							continue
-						else:
-							print("Could not replicate chunk id: ", chunk_id)
-					except:
-						print("Error during replication of chunk id: ", chunk_id)
-					finally:
-						lock_dict[chunk_loc].release()
-			if(count > 0):
-				print("Could not replicate all chunks of chunk server: ", chunk_server)
-			# resetting the parameters to new correct configuration
-			chunk_ids_to_replicate[chunk_server] = []
-			for chunk_id in chunk_to_chunk_ids[chunk_server]:
-				chunk_ids_to_chunks[chunk_id].remove(chunk_server)
-			chunk_to_chunk_ids[chunk_server] = []
-			print("Releasing lock at line 500")
-			lock_dict[chunk_server].release()
-		except:
-			print("Error in checking dead chunk servers")
-		# else: # if alive there is no need for replication, can simply return
-		# 	return
+	
 
 
 if __name__ == '__main__':

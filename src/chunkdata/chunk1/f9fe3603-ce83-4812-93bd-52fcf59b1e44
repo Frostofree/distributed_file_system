@@ -1,0 +1,4 @@
+# General
+HOST = "localhost"
+CHUNK_SIZE = 64
+MESSAGE_SIZE = 1024

@@ -1,6 +1,6 @@
 # General
 HOST = "localhost"
-CHUNK_SIZE = 512
+CHUNK_SIZE = 64
 MESSAGE_SIZE = 1024
 PACKET_SIZE = 16384
 

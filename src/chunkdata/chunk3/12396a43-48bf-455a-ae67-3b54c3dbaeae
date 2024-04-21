@@ -1,0 +1,5 @@
+g'
+
+# Chunk Server
+NUM_CHUNKS = 5
+CHUNK_PORTS = [7004, 7005, 700
