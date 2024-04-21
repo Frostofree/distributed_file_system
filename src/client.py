@@ -76,7 +76,7 @@ class Client():
 			for loc in locs:
 				if success == False:
 					try:
-						time.sleep(0.1)
+						time.sleep(0.2)
 						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[int(loc)]))
 						request = self._get_message_data('read_chunk', id)	
@@ -130,9 +130,12 @@ class Client():
 		while True:
 			response = self.master.recv(config.MESSAGE_SIZE)
 			response = json.loads(response.decode('utf-8'))
+			# print(response)
 			if response['status'] == -1:
-				print(response)
+				print(response['message'])
 				fail = True
+				break
+			if response['status'] == 1:
 				break
 			chunk_ids.append(response['chunk_id'])
 			chunks_locs.append(response['chunk_loc'])

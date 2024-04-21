@@ -332,6 +332,7 @@ class MasterServer():
 			file = curr_dir.files[file_name]
 			if file.status != FileStatus.COMMITTED:
 				client.send(self.__respond_status(-1, 'File not committed'))
+				print(file.status)
 				return
 			ip, port = client.getpeername()
 			lock_key = str(ip) + str(port)

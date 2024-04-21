@@ -1,10 +1,32 @@
 create / config
-set_chunk_loc / config f9fe3603-ce83-4812-93bd-52fcf59b1e44 [4, 2, 0]
-set_chunk_loc / config 4a1dbec4-4534-4e8d-a43d-10917a3cbf6d [3, 2, 1]
-set_chunk_loc / config 0e862f60-59bc-44d1-ab5c-a3c42b1fa41b [3, 4, 0]
-set_chunk_loc / config 12396a43-48bf-455a-ae67-3b54c3dbaeae [3, 2, 0]
-set_chunk_loc / config 3b8b7007-d556-4edf-ac58-d50f4a543ef7 [2, 3, 0]
-set_chunk_loc / config f751db88-fdb6-4989-a1b9-dd92168dd1b8 [4, 0, 1]
-set_chunk_loc / config 1689fb41-db70-4e62-9010-7305536c44f4 [4, 2, 3]
-set_chunk_loc / config 57f3e74c-7daf-4d4f-bcf6-4014a75487c8 [0, 3, 2]
+set_chunk_loc / config 40bcdaab-555a-4ea0-966a-a26db440e854 [3, 4, 0]
+set_chunk_loc / config 89a46613-f679-4c13-82bb-78a734c24bb7 [3, 4, 1]
+set_chunk_loc / config 69b9a424-3da3-4638-a550-0aa4f4a3058f [2, 0, 3]
+set_chunk_loc / config 285f5feb-1e3d-499f-9198-a35f9c23620e [4, 0, 3]
+set_chunk_loc / config 7ae209e8-c4d0-45c6-84e4-fbbb51db1fa5 [0, 4, 3]
+set_chunk_loc / config 9632ab03-2113-45c8-8adc-8ba2e5a0b2df [3, 1, 2]
+set_chunk_loc / config 866fd4e3-128d-4fe8-b6f1-1d25e9fe3ef3 [4, 0, 1]
+set_chunk_loc / config feac8a8a-9c9b-42db-bd09-b368fd5f120b [3, 1, 2]
 delete / config
+create / config2
+set_chunk_loc / config2 8548e712-9914-44e0-abd8-809e2161c50d [0, 3, 4]
+set_chunk_loc / config2 3e8d7579-1e15-4961-961a-e881dd88acb1 [1, 2, 3]
+set_chunk_loc / config2 e8ca40be-fbdb-4dfa-b0e3-681d115f8ffc [4, 1, 0]
+set_chunk_loc / config2 39054e9d-946d-4cf1-aca0-89e9be9cdce2 [1, 4, 2]
+set_chunk_loc / config2 eef08d95-84e3-4a62-9887-2eaa1f611e95 [2, 0, 4]
+set_chunk_loc / config2 9198d4c8-ee18-4c33-ad39-c1e36c602b02 [2, 0, 4]
+set_chunk_loc / config2 6507a236-e5c4-4020-a128-26a8d85ddea8 [2, 3, 0]
+set_chunk_loc / config2 41595d2d-0a76-4307-ad18-04145931fd27 [0, 4, 2]
+delete / config2
+delete / config2
+create / a
+set_chunk_loc / a 27d7b87d-0494-4620-b8af-b1dd587b1673 [1, 2, 0]
+set_chunk_loc / a 747f845c-ed54-4182-9aeb-5c50b9135530 [2, 0, 4]
+set_chunk_loc / a d06b32a6-e556-47fc-9987-b72117118e00 [3, 2, 1]
+set_chunk_loc / a e5823d82-93d6-41d5-91c4-1f6323db1445 [4, 1, 0]
+set_chunk_loc / a d5814274-793c-4a9d-a72f-026aff8db6b6 [1, 2, 3]
+set_chunk_loc / a 24974113-6dac-4000-8403-301643f07d08 [1, 4, 3]
+set_chunk_loc / a ec14595b-1c7f-4588-b336-9b6ad650f5f8 [2, 4, 1]
+set_chunk_loc / a 8be69cca-f914-4d47-bbde-2a7fa330e93c [4, 0, 3]
+delete / a
+delete / a
