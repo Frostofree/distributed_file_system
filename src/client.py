@@ -3,6 +3,7 @@ import pickle
 import os.path
 import threading
 import time
+import errno
 
 import config
 import json
@@ -11,10 +12,7 @@ import json
 
 class Client():
 	def __init__(self):
-		self.master_dead = False
-		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		# self.master.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
+		self.master_dead = True
 
 
 	def create_dir(self, dfs_dir, new_dir):
@@ -22,6 +20,8 @@ class Client():
 			request = self._get_message_data('create_dir', dfs_dir, new_dir)
 			self.master.sendall(request)
 			response = self.master.recv(config.MESSAGE_SIZE)
+			if not response:
+				raise Exception('Master not responding!')
 			response = json.loads(response.decode('utf-8'))
 			print(response['message'])
 		except Exception as e:
@@ -38,6 +38,8 @@ class Client():
 			request = self._get_message_data('create_file', dfs_dir, dfs_name)
 			self.master.sendall(request)
 			response = self.master.recv(config.MESSAGE_SIZE)
+			if not response:
+				raise Exception('Master not responding!')
 			response = json.loads(response.decode('utf-8'))
 			if response['status'] == -1:
 				print(response['message'])
@@ -45,10 +47,14 @@ class Client():
 
 			num_bytes = os.path.getsize(local_path)
 			chunks = num_bytes // config.CHUNK_SIZE + int(num_bytes%config.CHUNK_SIZE != 0)
+
+			dead_chunks = [0]*config.NUM_CHUNKS
 			for chunk in range(chunks):
 				request = self._get_message_data('set_chunk_loc', dfs_dir, dfs_name)
 				self.master.send(request)
 				response = self.master.recv(config.MESSAGE_SIZE)
+				if not response:
+					raise Exception('Master not responding!')
 				response = json.loads(response.decode('utf-8'))
 				chunk_id = response['chunk_id']
 				chunk_locs = response['chunk_locs']
@@ -57,15 +63,33 @@ class Client():
 					f.seek(chunk * config.CHUNK_SIZE)
 					data = f.read(config.CHUNK_SIZE)
 
+				count = 0
 				for chunk_loc in chunk_locs:
-					chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-					chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[chunk_loc]))
-					request = self._get_message_data('write_chunk', chunk_id)	
-					chunk_server.sendall(request)
-					chunk_server.sendall(data)
+					try:
+						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[chunk_loc]))
+						request = self._get_message_data('write_chunk', chunk_id)
+						chunk_server.sendall(request)
+						chunk_server.sendall(data)
+						chunk_server.close()
+						dead_chunks[chunk_loc] = 0
+						count += 1
+					except Exception as e:
+						
+						if "[Errno 111] Connection refused" in str(e):
+							dead_chunks[chunk_loc] = 1
+						
+					
+				if sum(dead_chunks) == config.NUM_CHUNKS:
+					request = self._get_message_data('file_failed', dfs_dir, dfs_name)
+					self.master.send(request)
 
-				chunk_server.close()
-			self.master.send(self._get_message_data("commit_file", dfs_dir, dfs_name))
+				if count == 0:
+					print('Could not create file. Try again...')
+					return
+
+			request = self._get_message_data("commit_file", dfs_dir, dfs_name)
+			self.master.send(request)
 		except Exception as e:
 			self.master.close()
 			self.master_dead = True
@@ -108,18 +132,13 @@ class Client():
 								request = self._get_message_data('read_chunk', id)	
 								chunk_server.sendall(request)
 								response = chunk_server.recv(config.MESSAGE_SIZE)
-								if not response:
-									raise Exception('Chunkserver not responding!')
 								response = json.loads(response.decode('utf-8'))
 								if response['status'] == -1:
 									success = False
 								else:
 									data += response['data']
 									success = True
-							except Exception as e:
-								if "[Errno 32] Broken pipe" in str(e):
-									print('Chunkserver not responding!')
-								else: print(e)
+							except:
 								success = False
 						else:
 							break
@@ -138,7 +157,7 @@ class Client():
 			self.master_dead = True
 			if "[Errno 32] Broken pipe" in str(e):
 				print('Master not responding!')
-			else: print(e)
+			# else: print(e)
 		
 	
 	def list_files(self, dfs_dir):
@@ -171,6 +190,7 @@ class Client():
 			self.master.sendall(request)
 			chunk_ids, chunks_locs = [], []
 			while True:
+				# time.sleep(0.2)
 				response = self.master.recv(config.MESSAGE_SIZE)
 				if not response:
 					raise Exception('Master not responding!')
@@ -186,20 +206,31 @@ class Client():
 
 			if not fail:
 				for id, locs in zip(chunk_ids, chunks_locs):
+					dead_chunks = [0]*config.NUM_CHUNKS
 					for loc in locs:
-						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-						chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
-						request = self._get_message_data('delete_chunk', id)	
-						chunk_server.sendall(request)
-						response = chunk_server.recv(config.MESSAGE_SIZE)
-						if not response:
-							raise Exception('Chunkserver not responding!')
-						response = json.loads(response.decode('utf-8'))
-						if response['status'] == -1:
-							print(response['message'])
-							return
-						chunk_server.close()
-				self.master.send(self._get_message_data("commit_delete", dfs_dir, dfs_name))
+						try:
+							chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+							chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
+							request = self._get_message_data('delete_chunk', id)	
+							chunk_server.sendall(request)
+							response = chunk_server.recv(config.MESSAGE_SIZE)
+							if not response:
+								raise Exception('Chunkserver not responding!')
+							response = json.loads(response.decode('utf-8'))
+							chunk_server.close()
+							dead_chunks[loc] = 0
+						except Exception as e:
+							if "[Errno 111] Connection refused" in str(e):
+								print('Connection to chunk server failed!')
+								dead_chunks[loc] = 1
+							else: print(e)
+
+						if sum(dead_chunks) == config.NUM_CHUNKS:
+							request = self._get_message_data('file_failed', dfs_dir, dfs_name)
+							self.master.send(request)
+
+				request = self._get_message_data("commit_delete", dfs_dir, dfs_name)
+				self.master.send(request)
 				self.master.recv(config.MESSAGE_SIZE)
 				if response['status'] != 0:
 					print(response['message'])
@@ -311,11 +342,3 @@ if __name__ == '__main__':
 				break
 			else:
 				print("Command not found!")
-
-
-
-# create file 
-# delete file
-
-# read file
-# list files

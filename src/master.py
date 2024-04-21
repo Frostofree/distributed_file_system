@@ -44,17 +44,6 @@ class SynchronizedDict:
     def items(self):
         return list(self._dictionary.items())
 
-# # Example usage:
-# sync_dict = SynchronizedDict()
-
-# sync_dict['key1'] = 'value1'
-# sync_dict['key2'] = 'value2'
-
-# print(sync_dict['key1'])  # Output: value1
-
-# with sync_dict._lock:
-#     del sync_dict['key2']
-
 
 
 class Logger():
@@ -170,7 +159,6 @@ class File():
 		self.chunks = {}
 		self.status = None
 		self.is_locked = False
-
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
 	
@@ -188,7 +176,7 @@ class MasterServer():
 		self.root = self.logger.root
 		self.lock_map = {} # maps key: ip+port as string to file object
 		self.system_locked = False
-		
+		self.dead_servers = []
 		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
 		heart_beat_thread.start()	
 
@@ -263,6 +251,11 @@ class MasterServer():
 							client.send(self.__respond_status(-1, 'System is locked'))
 						else:
 							self.commit_delete(client, args)
+					elif command == "file_failed":
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.file_failed(client, args)
 					elif command == 'close':
 						self.close_connection(client)
 						connected = False
@@ -270,9 +263,42 @@ class MasterServer():
 						
 			except socket.error:
 				print(f"Client with IP {ip} and Port {port} unexpectedly disconnected.")
+				self.handle_client_disconnect(ip, port)
 				client.close()
 				connected = False 
 
+
+
+	def handle_client_disconnect(self, ip, port):
+		lock_key = str(ip) + str(port)
+		if lock_key in self.client_to_file_lock.keys():
+			file = self.client_to_file_lock.__getitem__(lock_key)
+			self.client_to_file_lock.__delitem__(lock_key)
+			print(f"unlocked file {lock_key}")
+
+			# if the file was committed it wont be touched, if it is either creating, committed, deleting, then the pruning will eventually deal with the entire thing
+	def file_failed(self, client, args):
+		directory = args[0]
+		file_name = args[1]
+
+		directory = [part for part in directory.split('/') if part]
+		curr_dir = self.root
+		
+		for d in directory: 
+			if d not in curr_dir.subdirectories:
+				return
+			curr_dir = curr_dir.subdirectories[d]
+
+		if file_name in curr_dir.files:
+			file = curr_dir.files[file_name]
+			file.status = FileStatus.ABORTED
+			# will eventually be cleaned up
+		else:
+			# if current client holds the lock delete it
+			ip, port = client.getpeername()
+			lock_key = str(ip) + str(port)
+			if lock_key in self.client_to_file_lock.keys():
+				self.client_to_file_lock.__delitem__(lock_key)
 	def prune_chunk_handler(self):
 		while True:
 			time.sleep(config.PRUNING_INTERVAL)
@@ -317,8 +343,7 @@ class MasterServer():
 		while True:
 			time.sleep(config.HEART_BEAT_INTERVAL)
 			with chunk_server_lock:
-
-				for port in config.CHUNK_PORTS:
+				for idx, port in enumerate(config.CHUNK_PORTS):
 					try:
 						sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 						sock.settimeout(1)
@@ -328,14 +353,17 @@ class MasterServer():
 						response = sock.recv(config.MESSAGE_SIZE)
 						response = json.loads(response.decode('utf-8'))
 						if response['status'] == 0:
+							if idx in self.dead_servers:
+								self.dead_servers.remove(idx)
 							pass
 						else:
 							raise Exception
 					except socket.error as e:
 						print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
+						self.dead_servers.append(idx)
 						sock.close()
 					except Exception as e:
-						print(e)
+						self.dead_servers.append(idx)
 						print(f"Chunk Server with IP {self.host} and Port {port} not up.")
 						sock.close()
 
@@ -479,7 +507,6 @@ class MasterServer():
 			curr_dir = curr_dir.subdirectories[d]
 
 		if file_name in curr_dir.files:
-			# get the file object 
 			file = curr_dir.files[file_name]
 			if file.status == FileStatus.COMMITTED:	
 				client.send(self.__respond_status(-1, 'File already exists'))
@@ -593,7 +620,11 @@ class MasterServer():
 		return str(uuid.uuid4())
 	
 	def _sample_chunk_locs(self):
-		chunk_locs = random.sample(range(0, self.NUM_CHUNKS), config.REPLICATION_FACTOR)
+		available_ports = []
+		for idx, port in enumerate(config.CHUNK_PORTS):
+			if port not in self.dead_servers:
+				available_ports.append(idx)
+		chunk_locs = random.sample(available_ports, min(config.REPLICATION_FACTOR, len(available_ports)))
 		return chunk_locs
 		
 
