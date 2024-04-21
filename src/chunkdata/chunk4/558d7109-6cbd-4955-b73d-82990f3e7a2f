@@ -1,4 +1,0 @@
-__main__':
-	client = Client()
-	while True:
-		command = input('>

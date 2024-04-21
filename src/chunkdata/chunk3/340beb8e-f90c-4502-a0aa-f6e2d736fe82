@@ -1,2 +1,0 @@
-server.recv(config.MESSAGE_SIZE)
-				response = json.loads(respo

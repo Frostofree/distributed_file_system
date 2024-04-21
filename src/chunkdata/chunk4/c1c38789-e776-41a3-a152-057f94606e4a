@@ -1,3 +1,0 @@
-ommand == 'exit':
-			client.close_connection()
-			print("Exiting

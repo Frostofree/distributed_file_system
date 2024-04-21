@@ -1,3 +1,0 @@
-f):
-			request = self._get_message_data('close', '')
-			self.mas

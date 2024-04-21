@@ -1,3 +1,0 @@
-nse.decode('utf-8'))
-				if response['status'] == -1:
-					print

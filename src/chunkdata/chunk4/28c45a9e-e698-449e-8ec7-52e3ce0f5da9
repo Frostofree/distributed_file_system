@@ -1,2 +1,0 @@
-ll(request)
-		response = self.master.recv(config.MESSAGE_SIZE)

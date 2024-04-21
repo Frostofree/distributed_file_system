@@ -1,3 +1,0 @@
-_dir, new_dir)
-		self.master.sendall(request)
-		response = self.

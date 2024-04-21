@@ -1,4 +1,0 @@
-f.read(config.CHUNK_SIZE)
-
-			for chunk_loc in chunk_locs:
-				c

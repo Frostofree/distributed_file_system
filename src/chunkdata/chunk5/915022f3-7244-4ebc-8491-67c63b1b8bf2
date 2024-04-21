@@ -1,3 +1,0 @@
-', dfs_dir)
-		self.master.sendall(request)
-		response = self.mas

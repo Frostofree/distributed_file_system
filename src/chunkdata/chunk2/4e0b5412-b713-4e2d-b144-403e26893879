@@ -1,3 +1,0 @@
-e True:
-			response = self.master.recv(config.MESSAGE_SIZE)
-			r

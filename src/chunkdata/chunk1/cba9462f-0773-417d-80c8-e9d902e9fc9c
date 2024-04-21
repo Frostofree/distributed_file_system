@@ -1,2 +1,0 @@
-, new_dir):
-		request = self._get_message_data('create_dir', dfs

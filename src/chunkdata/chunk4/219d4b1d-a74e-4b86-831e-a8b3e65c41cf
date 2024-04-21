@@ -1,2 +1,0 @@
-get_message_data('read_chunk', id)	
-						chunk_server.sendall(r

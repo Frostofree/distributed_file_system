@@ -1,2 +1,0 @@
-SOCK_STREAM)
-		# self.master.setsockopt(socket.SOL_SOCKET, socke

@@ -1,2 +1,0 @@
-esponse = json.loads(response.decode('utf-8'))
-			if response['s

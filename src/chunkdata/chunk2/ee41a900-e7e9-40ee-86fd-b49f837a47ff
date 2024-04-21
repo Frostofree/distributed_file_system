@@ -1,3 +1,0 @@
-master.sendall(request)
-		chunk_ids, chunks_locs = [], []
-		whil

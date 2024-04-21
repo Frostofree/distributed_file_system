@@ -1,1 +1,0 @@
-chunk_server.connect((socket.gethostbyname('localhost'), con

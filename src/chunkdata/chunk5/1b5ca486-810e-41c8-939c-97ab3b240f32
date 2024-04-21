@@ -1,3 +1,0 @@
-endall(request)
-		chunk_ids, chunks_locs = [], []
-		while True:

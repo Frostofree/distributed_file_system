@@ -1,6 +1,0 @@
-:]
-
-
-		if command == 'ls':
-			# usage ls <dfs_directory>
-			clie

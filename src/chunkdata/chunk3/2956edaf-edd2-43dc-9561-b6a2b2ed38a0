@@ -1,3 +1,0 @@
-k', id)	
-				chunk_server.sendall(request)
-				response = chunk_

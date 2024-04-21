@@ -1,2 +1,0 @@
-equest)
-						response = chunk_server.recv(config.MESSAGE_SIZE)

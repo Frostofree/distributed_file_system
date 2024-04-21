@@ -1,2 +1,0 @@
-g.CHUNK_SIZE + int(num_bytes%config.CHUNK_SIZE != 0)
-		for chunk

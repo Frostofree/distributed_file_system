@@ -1,2 +1,0 @@
-t.SO_REUSEADDR, 1)
-		self.master.connect((socket.gethostbyname('

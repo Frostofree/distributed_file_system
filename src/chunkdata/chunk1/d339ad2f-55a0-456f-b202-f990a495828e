@@ -1,3 +1,0 @@
-nt.list_files(args[0])
-		elif command == 'delete':
-			# usage de

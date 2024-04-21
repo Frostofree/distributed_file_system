@@ -1,2 +1,0 @@
-lete <dfs_directory> <dfs_name>
-			client.delete_file(args[0], a

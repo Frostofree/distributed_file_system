@@ -1,2 +1,0 @@
-in range(chunks):
-			request = self._get_message_data('set_chun

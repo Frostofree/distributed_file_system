@@ -1,2 +1,0 @@
-calhost'), config.CHUNK_PORTS[int(loc)]))
-						request = self._

@@ -1,2 +1,0 @@
-locs = locs_string.strip('][').strip(',').split(', ')
-			suc

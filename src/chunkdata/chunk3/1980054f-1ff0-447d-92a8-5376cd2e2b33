@@ -1,3 +1,0 @@
-(self, dfs_dir):
-
-		request = self._get_message_data('list_files

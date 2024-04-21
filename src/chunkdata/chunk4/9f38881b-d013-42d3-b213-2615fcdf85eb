@@ -1,5 +1,0 @@
-': args
-		}
-
-		# encode the message in utf8
-		encoded = json.dum

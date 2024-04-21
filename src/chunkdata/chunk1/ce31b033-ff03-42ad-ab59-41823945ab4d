@@ -1,4 +1,0 @@
-]
-			chunk_locs = response['chunk_locs']
-
-			with open(local_pat

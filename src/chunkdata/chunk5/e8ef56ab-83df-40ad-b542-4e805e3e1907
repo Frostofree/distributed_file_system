@@ -1,3 +1,0 @@
-localhost'), config.MASTER_PORT))
-
-	def create_dir(self, dfs_dir

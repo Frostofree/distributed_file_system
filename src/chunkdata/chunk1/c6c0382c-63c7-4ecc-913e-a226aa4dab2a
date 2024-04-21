@@ -1,2 +1,0 @@
-self._get_message_data('delete_file', dfs_dir, dfs_name)
-		self.

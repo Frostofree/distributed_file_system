@@ -1,2 +1,0 @@
-e(self, local_path, dfs_dir, dfs_name):
-		request = self._get_me
