@@ -1,0 +1,2 @@
+trip()
+					if len(line) == 0:

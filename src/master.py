@@ -88,13 +88,21 @@ class Directory():
 	def add_file(self, name: str):
 		path = self.dfs_path + '/' + name
 		self.files[name] = File(name, path)
+class FileStatus():
+	CREATING = 0
+	COMMITTED = 1
+	ABORTED = 2
+	DELETED = 3
 
 class File():
 	def __init__(self, name, dfs_path: str):
+		self.name = name
 		self.dfs_path = dfs_path
 		self.size = 0
 		self.chunks = {}
 		self.status = None
+		self.is_locked = False
+	
 
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
@@ -111,7 +119,11 @@ class MasterServer():
 		self.root = self.logger.root
 		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
 		heart_beat_thread.start()
-
+		chunk_health_thread = threading.Thread(target=self.chunk_health_handler)
+		chunk_health_thread.start()
+		self.locks = {} #clientip+port to file object
+		self.connected_clients = [] # list of currently connected clients
+		
 		
 
 	def listen(self):
@@ -123,9 +135,14 @@ class MasterServer():
 
 	def service(self, client, address):
 		ip, port = address
+		self.connected_clients.append((ip, port))
 		connected = True
+		current_command = None
+		current_args = None
 		while connected:
 			try:
+				current_command = None
+				current_args = None
 				message = client.recv(config.MESSAGE_SIZE)
 				if message == b'':
 					raise socket.error
@@ -135,11 +152,16 @@ class MasterServer():
 					command = message['function']
 					args = message['args']
 
+					current_command = command
+					current_args = args
+
 				if sender_type == 'client':
 					if command == 'create_file':
 						self.create_file(client, args)
 					elif command == 'set_chunk_loc':
 						self.set_chunk_loc(client, args)
+					elif command == 'commit_file':
+						self.commit_file(client, args)
 					elif command == 'create_dir':
 						self.create_dir(client, args)
 					elif command == 'read_file':
@@ -152,36 +174,58 @@ class MasterServer():
 						self.close_connection(client)
 						connected = False
 						print(f"Client with IP {ip} and Port {port} disconnected.")
-						
+
 			except socket.error:
 				print(f"Client with IP {ip} and Port {port} unexpectedly disconnected.")
-				client.close()
 				connected = False 
+				self.connected_clients.remove((ip, port))
+				# check if the client was holding any file locks 
+			
+
+				to_pop = None
+				for key, file in self.locks.items():
+					lock_ip, lock_port = key.split(':')
+					str_port = str(port)	
+					print(type(lock_ip), type(ip), type(lock_port), type(port))
+					if lock_ip == ip and lock_port == str_port:
+						to_pop = key						
+						file.status = FileStatus.ABORTED
+						print(f"File {file.name} lock released")
+						print(f"Aborted file {file.name}")
+				self.locks.pop(to_pop)
+				client.close()
+	def chunk_health_handler(self):
+		# iterate through all directories and call purge chunks
+		while True:
+			time.sleep(config.HEART_BEAT_INTERVAL)
+			curr_dir = self.root
+			self.purge_chunks(curr_dir)	
+
 
 	def heart_beat_handler(self):
 		while True:
 			time.sleep(config.HEART_BEAT_INTERVAL)
-			print("pinging servers")
-			for port in config.CHUNK_PORTS:
-				try:
-					sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-					sock.settimeout(1)
-					sock.connect((self.host, port))
-					request = self.__respond_message("heartbeat", [])
-					sock.send(request)
-					response = sock.recv(config.MESSAGE_SIZE)
-					response = json.loads(response.decode('utf-8'))
-					if response['status'] == 0:
-						print(f"Chunk Server with IP {self.host} and Port {port} is up.")
-					else:
-						raise Exception
-				except socket.error as e:
-					print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
-					sock.close()
-				except Exception as e:
-					print(e)
-					print(f"Chunk Server with IP {self.host} and Port {port} not up.")
-					sock.close()
+			for idx, port in enumerate(config.CHUNK_HEARBEAT_PORTS):
+				with self.chunk_server_locks[idx]:	
+					try:
+						sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+						sock.settimeout(1)
+						sock.connect((self.host, port))
+						request = self.__respond_message("heartbeat", [])
+						sock.send(request)
+						response = sock.recv(config.MESSAGE_SIZE)
+						response = json.loads(response.decode('utf-8'))
+						if response['status'] == 0:
+							pass
+						else:
+							raise Exception
+					except socket.error as e:
+						print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
+						sock.close()
+					except Exception as e:
+						print(e)
+						print(f"Chunk Server with IP {self.host} and Port {port} not up.")
+						sock.close()
 
 
 	def read_file(self, client, args):
@@ -295,6 +339,12 @@ class MasterServer():
 		else:
 			curr_dir.add_file(file_name)
 			print(f"added file {file_name}")
+			file = curr_dir.files[file_name]
+			file.status = FileStatus.CREATING
+			ip, port = client.getpeername()
+			lock_key = str(ip) + ":" + str(port)
+			self.locks[lock_key] = file
+			file.is_locked = True
 			self.logger.log_info('create', [args[0], args[1]])
 			client.send(self.__respond_status(0, 'File Created'))
 
@@ -332,6 +382,28 @@ class MasterServer():
 		response = json.dumps(response).encode('utf-8')
 		response += b' ' * (config.MESSAGE_SIZE - len(response))
 		client.send(response)
+	def commit_file(self, client, args):
+		dfs_dir = args[0]
+		dfs_name = args[1]
+
+		directory = [part for part in dfs_dir.split('/') if part]
+		curr_dir = self.root
+		
+		for d in directory: 
+			if d not in curr_dir.subdirectories:
+				client.send(self.__respond_status(-1, 'Directory does not exist'))
+				return
+			curr_dir = curr_dir.subdirectories[d]
+
+		if dfs_name not in curr_dir.files:
+			client.send(self.__respond_status(-1, 'File does not exist'))
+		else:
+			file = curr_dir.files[dfs_name]
+			file.status = FileStatus.COMMITTED
+			ip, port = self.locks[dfs_name]
+			self.locks.pop(dfs_name)
+			file.is_locked = False
+			print(f"commited file {dfs_name} ")
 
 	def create_dir(self, client, args):
 		dir_loc = args[0]

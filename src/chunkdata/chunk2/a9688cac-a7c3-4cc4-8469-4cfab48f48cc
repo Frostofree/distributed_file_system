@@ -1,1 +1,0 @@
-ds(message.decode('utf-8'))

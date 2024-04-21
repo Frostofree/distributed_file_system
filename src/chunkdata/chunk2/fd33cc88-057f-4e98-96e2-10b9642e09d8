@@ -1,0 +1,1 @@
+ef log_info(self, command, args)

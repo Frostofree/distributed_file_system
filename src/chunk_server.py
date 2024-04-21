@@ -8,13 +8,13 @@ import config
 import json
 
 
+
 class ChunkServer():
     def __init__(self, host, port, rootdir):
         self.host = host
         self.port = port
         self.rootdir = rootdir
         self.present = {}
-        self.lock = threading.Lock()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.host, self.port))

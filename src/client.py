@@ -46,6 +46,7 @@ class Client():
 				data = f.read(config.CHUNK_SIZE)
 
 			for chunk_loc in chunk_locs:
+				time.sleep(0.1)
 				chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 				chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[chunk_loc]))
 				request = self._get_message_data('write_chunk', chunk_id)	
@@ -53,6 +54,7 @@ class Client():
 				chunk_server.sendall(data)
 
 			chunk_server.close()
+		self.master.send(self._get_message_data("commit_file", dfs_dir, dfs_name))
 
 
 	def read_file(self, dfs_dir, dfs_name):

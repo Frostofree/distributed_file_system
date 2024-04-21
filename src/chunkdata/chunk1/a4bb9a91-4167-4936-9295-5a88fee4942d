@@ -1,0 +1,2 @@
+r = args[1]
+		print(dir_loc, new

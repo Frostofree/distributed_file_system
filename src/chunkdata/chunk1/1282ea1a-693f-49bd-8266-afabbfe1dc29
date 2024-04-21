@@ -1,0 +1,2 @@
+sage == b'':
+					raise socket.e

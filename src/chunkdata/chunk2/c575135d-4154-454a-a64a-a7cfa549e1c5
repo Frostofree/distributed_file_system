@@ -1,0 +1,4 @@
+= 2
+	DELETED = 3
+
+class File():

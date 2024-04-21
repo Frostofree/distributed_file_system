@@ -1,0 +1,1 @@
+t in dir_loc.split('/') if part]

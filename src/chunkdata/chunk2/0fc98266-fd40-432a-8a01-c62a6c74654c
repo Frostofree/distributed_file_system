@@ -1,1 +1,0 @@
-se = json.dumps(response).encode

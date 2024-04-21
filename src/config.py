@@ -12,7 +12,9 @@ MASTER_LOG = 'master.log'
 
 # Chunk Server
 NUM_CHUNKS = 2
-CHUNK_PORTS = [8004, 8005]
+CHUNK_PORTS = [6004, 6005]
+CHUNK_HEARBEAT_PORTS = [7004, 7005]
+CHUNK_HEALTH_PORTS = [8004, 8005]
 REPLICATION_FACTOR = 1
 ROOT_DIR = ['./chunkdata/chunk1', './chunkdata/chunk2', './chunkdata/chunk3', './chunkdata/chunk4']
 

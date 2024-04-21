@@ -1,2 +1,0 @@
-n(self):
-		self.sock.listen()
