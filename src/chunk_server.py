@@ -48,6 +48,7 @@ class ChunkServer():
             if command == 'replicate_chunk':
                 print("Chunk server recieved message")
                 self.replicate_chunk(client, args)
+                
         elif sender_type == 'chunk_server':
             if command == "write_chunk":
                 print(args)
@@ -147,7 +148,7 @@ class ChunkServer():
         try:
             new_chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             new_chunk_server.connect((socket.gethostbyname('localhost'), new_chunk_loc))
-            new_chunk_server.settimeout(1)
+            # new_chunk_server.settimeout(1)
             request = self._get_message_data('write_chunk', chunk_id)	
             new_chunk_server.sendall(request)
             print("Request sent")

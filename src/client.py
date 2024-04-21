@@ -63,6 +63,7 @@ class Client():
 		while True:
 			response = self.master.recv(config.MESSAGE_SIZE)
 			response = json.loads(response.decode('utf-8'))
+			print(response)
 			if response['status'] == 1:
 				break
 			chunk_ids.append(response['chunk_id'])
@@ -70,8 +71,9 @@ class Client():
 
 		data = ''
 		final_success = True
-		for id, locs_string in zip(chunk_ids, chunks_locs):
-			locs = locs_string.strip('][').strip(',').split(', ')
+		for id, locs in zip(chunk_ids, chunks_locs):
+			print(type(locs))
+			print(locs)
 			success = False
 			for loc in locs:
 
@@ -143,6 +145,15 @@ class Client():
 				if response['status'] == -1:
 					print(response['message'])
 					return
+				chunk_server.close()
+		self.master.send(self._get_message_data("commit_delete", dfs_dir, dfs_name))
+		self.master.recv(config.MESSAGE_SIZE)
+		if response['status'] != 0:
+			print(response['message'])
+		else:
+			print(response['message'])
+
+
 
 		
 
@@ -173,8 +184,10 @@ class Client():
 
 if __name__ == '__main__':
 	client = Client()
+	print('\033c')
+	print('\033[2J')
 	while True:
-		command = input('> ')
+		command = input('$ ')
 		words = command.split()
 		command, args = words[0], words[1:]
 
@@ -199,4 +212,4 @@ if __name__ == '__main__':
 			print("Exiting...")
 			break
 		else:
-			print("chutiya hai kya")
+			print(f"{command}: command not found")

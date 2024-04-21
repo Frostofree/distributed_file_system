@@ -128,9 +128,7 @@ class MasterServer():
 		self.logger = Logger(config.MASTER_LOG)
 		self.root = self.logger.root
 		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
-		heart_beat_thread.start()
-		chunk_health_thread = threading.Thread(target=self.chunk_health_handler)
-		chunk_health_thread.start()
+		heart_beat_thread.start()	
 		self.locks = {} #clientip+port to file object
 		self.connected_clients = [] # list of currently connected clients
 		
@@ -172,6 +170,8 @@ class MasterServer():
 						self.set_chunk_loc(client, args)
 					elif command == 'commit_file':
 						self.commit_file(client, args)
+					elif command == 'commit_delete':
+						self.commit_delete(client, args)
 					elif command == 'create_dir':
 						self.create_dir(client, args)
 					elif command == 'read_file':
@@ -204,15 +204,7 @@ class MasterServer():
 						print(f"Aborted file {file.name}")
 				self.locks.pop(to_pop)
 				client.close()
-	def chunk_health_handler(self):
-		# iterate through all directories and call purge chunks
-		while True:
-			time.sleep(config.HEART_BEAT_INTERVAL)
-			curr_dir = self.root
-			self.purge_chunks(curr_dir)	
-	def purge_chunks(self, curr_dir):
-		pass
-
+	
 
 	def heart_beat_handler(self):
 		global alive_chunk_servers
@@ -224,7 +216,7 @@ class MasterServer():
 			for idx, port in enumerate(config.CHUNK_PORTS):	
 				try:
 					sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-					sock.settimeout(1)
+					sock.settimeout(20)
 					sock.connect((self.host, port))
 					request = self.__respond_message("heartbeat", [])
 					sock.send(request)
@@ -255,6 +247,28 @@ class MasterServer():
 						with lock:
 							dead[port] = True
 						self.check_chunk_server(port)
+			curr_dir = self.root
+			self.purge_chunks(curr_dir)
+
+	def purge_chunks(self, dir):
+		for file_name in dir.files:
+			file = dir.files[file_name]
+			if not file.is_locked:
+				if file.status in [FileStatus.CREATING, FileStatus.DELETED, FileStatus.ABORTED]:
+					for chunk_id, chunk_locs in file.chunks.items():
+						for chunk_loc in chunk_locs:
+							try:
+								sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+								sock.connect((self.host, config.CHUNK_PORTS[chunk_loc]))
+								request = self._get_message_data('delete_chunk', chunk_id)
+								sock.sendall(request)
+								response = sock.recv(config.MESSAGE_SIZE)
+								response = json.loads(response.decode('utf-8'))
+								if response['status'] == -1:
+									pass
+								sock.close()
+							except Exception as e:
+								pass
 
 
 	def read_file(self, client, args):
@@ -272,9 +286,11 @@ class MasterServer():
 
 		if file_name not in curr_dir.files:
 			client.send(self.__respond_status(-1, 'File does not exist'))
+			return
 		else:
 			file = curr_dir.files[file_name]
-
+			if file.status != FileStatus.COMMITTED:
+				client.send(self.__respond_status(-1, "File is not committed, will be purged"))
 			for id, loc in file.chunks.items():
 				response = {
 					'status': 0,
@@ -286,16 +302,32 @@ class MasterServer():
 				client.send(response)
 
 			client.send(self.__respond_status(1, 'Done'))
-
+	def commit_delete(self, client, args):
+		dir = args[0]
+		file = args[1]
+		directory = [part for part in dir.split('/') if part]
+		curr_dir = self.root
+		for d in directory:
+			if d not in curr_dir.subdirectories:
+				client.send(self.__respond_status(-1, 'Directory does not exist'))
+				return
+			curr_dir = curr_dir.subdirectories[d]
+		if file not in curr_dir.files.keys():
+			client.send(self.__respond_status(-1, 'File does not exist'))
+			return
+		else:
+			curr_dir.files.pop(file)
+			client.send(self.__respond_status(0, 'Done'))
+		print(f"Deleted file {file}")
+		
+		
 
 
 	def list_files(self, client, args):
 		dfs_dir = args[0]
-		# print(dfs_dir)
 
 		directory = [part for part in dfs_dir.split('/') if part]
 		curr_dir = self.root
-		# print(directory, curr_dir)
 
 		for d in directory: 
 			if d not in curr_dir.subdirectories:
@@ -303,9 +335,9 @@ class MasterServer():
 				return
 			curr_dir = curr_dir.subdirectories[d]
 
-		# print(curr_dir, curr_dir.files)
 		data = list(curr_dir.files.keys())
-		# print(data)
+		# remove the files that are not committed
+		data = [file for file in data if curr_dir.files[file].status == FileStatus.COMMITTED]
 		response = {
 			'status': 0,
 			'data': data
@@ -334,8 +366,8 @@ class MasterServer():
 			client.send(self.__respond_status(-1, 'File does not exist'))
 		else:
 			file = curr_dir.files[file_name]
-			curr_dir.files.pop(file_name)
-
+			file.status = FileStatus.DELETED
+			curr_dir.files.pop(file_name)#
 			for id, loc in file.chunks.items():
 				
 				response = {
@@ -349,6 +381,7 @@ class MasterServer():
 
 			self.logger.log_info('delete', [args[0], args[1]])
 			client.send(self.__respond_status(1, 'Done'))
+
 
 	def create_file(self, client, args):
 		directory = args[0]
@@ -399,7 +432,6 @@ class MasterServer():
 		chunk_locs = self._sample_chunk_locs()
 
 		with lock:
-			print("Giving ", chunk_id, " to ", chunk_locs[0], " and ", chunk_locs[1])
 			for chunk_loc in chunk_locs:
 				chunk_to_chunk_ids[config.CHUNK_PORTS[chunk_loc]].append(chunk_id)
 			for chunk_loc in chunk_locs:
@@ -521,16 +553,14 @@ class MasterServer():
 		# ask chunk_loc to replicate chunk_id on to new_chunk_loc
 		# add timeout and return 0 if it times out
 		try:
-			print("Attempting to replicate chunk with chunk id: ", chunk_id, " by sending message to chunk server with port: ", chunk_loc)
 			chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			chunk_server.connect((socket.gethostbyname('localhost'), chunk_loc)) # chunk_loc here is the port number or some unique id
-			chunk_server.settimeout(1)
+			# chunk_server.settimeout(1)
 			request = self._get_message_data('replicate_chunk', {"chunk_id": chunk_id, "new_chunk_loc": new_chunk_loc})	
 			chunk_server.sendall(request)
 			response = chunk_server.recv(config.MESSAGE_SIZE)
 			response = json.loads(response.decode('utf-8'))
 			# print("Chunk with chunk id: ", chunk_id, " replicated successfully")
-			print("Response status: ", response['status'])
 			return response['status']
 		except socket.timeout:
 			print("Socket operation timed out on commanding chunk server to replicate chunk id: ", chunk_id)
