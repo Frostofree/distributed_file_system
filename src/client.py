@@ -1,13 +1,18 @@
 import socket
 import pickle
 import os.path
+import threading
+import time
 
 import config
 import json
 
+
+
 class Client():
 	def __init__(self):
 		self.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		# self.master.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		self.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 
 	def create_dir(self, dfs_dir, new_dir):
@@ -17,10 +22,7 @@ class Client():
 		response = json.loads(response.decode('utf-8'))
 		print(response['message'])
 
-  
-
 	def create_file(self, local_path, dfs_dir, dfs_name):
-
 		request = self._get_message_data('create_file', dfs_dir, dfs_name)
 		self.master.sendall(request)
 		response = self.master.recv(config.MESSAGE_SIZE)
@@ -31,7 +33,6 @@ class Client():
 
 		num_bytes = os.path.getsize(local_path)
 		chunks = num_bytes // config.CHUNK_SIZE + int(num_bytes%config.CHUNK_SIZE != 0)
-
 		for chunk in range(chunks):
 			request = self._get_message_data('set_chunk_loc', dfs_dir, dfs_name)
 			self.master.send(request)
@@ -50,26 +51,25 @@ class Client():
 				request = self._get_message_data('write_chunk', chunk_id)	
 				chunk_server.sendall(request)
 				chunk_server.sendall(data)
-	
+
 			chunk_server.close()
 
 
 	def read_file(self, dfs_dir, dfs_name):
-
 		request = self._get_message_data('read_file', dfs_dir, dfs_name)
 		self.master.sendall(request)
-		response = self.master.recv(config.MESSAGE_SIZE)
-		response = json.loads(response.decode('utf-8'))
-		if response['status'] == -1:
-			print(response['message'])
-			return
-		
-		# print(response['chunk_ids'])
-		# print(response['chunk_locs'])
+		chunk_ids, chunks_locs = [], []
+		while True:
+			response = self.master.recv(config.MESSAGE_SIZE)
+			response = json.loads(response.decode('utf-8'))
+			if response['status'] == 1:
+				break
+			chunk_ids.append(response['chunk_id'])
+			chunks_locs.append(response['chunk_loc'])
 
 		data = ''
 		final_success = True
-		for id, locs in zip(response['chunk_ids'], response['chunk_locs']):
+		for id, locs in zip(chunk_ids, chunks_locs):
 			success = False
 			for loc in locs:
 				if success == False:
@@ -116,16 +116,16 @@ class Client():
 
 		request = self._get_message_data('delete_file', dfs_dir, dfs_name)
 		self.master.sendall(request)
-		response = self.master.recv(config.MESSAGE_SIZE)
-		response = json.loads(response.decode('utf-8'))
-		if response['status'] == -1:
-			print(response['message'])
-			return
-		
-		# print(response['chunk_ids'])
-		# print(response['chunk_locs'])
+		chunk_ids, chunks_locs = [], []
+		while True:
+			response = self.master.recv(config.MESSAGE_SIZE)
+			response = json.loads(response.decode('utf-8'))
+			if response['status'] == 1:
+				break
+			chunk_ids.append(response['chunk_id'])
+			chunks_locs.append(response['chunk_loc'])
 
-		for id, locs in zip(response['chunk_ids'], response['chunk_locs']):
+		for id, locs in zip(chunk_ids, chunks_locs):
 			for loc in locs:
 				chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 				chunk_server.connect((socket.gethostbyname('localhost'), config.CHUNK_PORTS[loc]))
@@ -140,7 +140,6 @@ class Client():
 		
 
 	def close_connection(self):
-			# send message to close connection
 			request = self._get_message_data('close', '')
 			self.master.sendall(request)
 			self.master.close()
@@ -171,6 +170,7 @@ if __name__ == '__main__':
 		command = input('> ')
 		words = command.split()
 		command, args = words[0], words[1:]
+
 
 		if command == 'ls':
 			# usage ls <dfs_directory>

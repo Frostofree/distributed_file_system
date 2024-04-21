@@ -1,2 +1,0 @@
-nk_id(self):
-		return str(uuid.u

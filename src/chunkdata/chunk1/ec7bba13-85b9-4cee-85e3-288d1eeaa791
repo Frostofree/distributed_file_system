@@ -1,2 +1,0 @@
-h: str):
-		self.dfs_path = dfs_p

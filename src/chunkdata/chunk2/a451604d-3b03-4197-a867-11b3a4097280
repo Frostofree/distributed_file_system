@@ -1,0 +1,2 @@
+f add_file(self, name: str):
+		p

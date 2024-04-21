@@ -1,0 +1,2 @@
+d(self):
+		return str(uuid.uuid4

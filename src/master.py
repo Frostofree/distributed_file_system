@@ -1,15 +1,82 @@
 import socket
 import threading
+import logging
 
 import config
 import uuid as uuid
 import random
+import os.path
 
+import sys
 import json
 import pickle
 
 from collections import OrderedDict
 import time
+
+
+class Logger():
+	def __init__(self, log_file):
+		logging.basicConfig(filename=log_file, format='%(message)s')
+		self.log = logging.getLogger('Master')
+		self.log.setLevel(logging.INFO)
+		self.root = Directory('/')
+		self.restore(log_file)
+
+	def restore(self, log_file):
+		if os.path.exists(log_file):
+			with open(log_file, 'r') as f:
+				while True:
+					line = f.readline().strip()
+					if len(line) == 0:
+						break
+					line = line.split()
+					command = line[0]
+					if command == 'create':
+						directory, file_name = line[1], line[2]
+						directory = [part for part in directory.split('/') if part]
+						curr_dir = self.root
+						for d in directory: 
+							curr_dir = curr_dir.subdirectories[d]
+						curr_dir.add_file(file_name)
+					elif command == 'create_dir':
+						dir_loc, new_dir = line[1], line[2]
+						print(dir_loc, new_dir)
+						dir_loc = [part for part in dir_loc.split('/') if part]
+						curr_dir = self.root
+						for d in dir_loc:
+							curr_dir = curr_dir.subdirectories[d]
+						curr_dir.subdirectories[new_dir] = Directory(curr_dir.dfs_path + '/' + new_dir)
+					elif command == 'set_chunk_loc':
+						dfs_dir, dfs_name = line[1], line[2]
+						directory = [part for part in dfs_dir.split('/') if part]
+						curr_dir = self.root
+						for d in directory: 
+							curr_dir = curr_dir.subdirectories[d]
+						chunk_id, chunk_locs = line[3], line[4]
+						file = curr_dir.files[dfs_name]
+						file.chunks[chunk_id] = chunk_locs
+					elif command == 'delete':
+						directory, file_name = line[1], line[2]
+						directory = [part for part in directory.split('/') if part]
+						curr_dir = self.root
+						for d in directory: 
+							curr_dir = curr_dir.subdirectories[d]
+						file = curr_dir.files[file_name]
+						curr_dir.files.pop(file_name)
+
+
+
+	def log_info(self, command, args):
+		if command == 'create':
+			self.log.info(f'create {args[0]} {args[1]}')
+		elif command == 'create_dir':
+			self.log.info(f'create_dir {args[0]} {args[1]}')
+		elif command == 'set_chunk_loc':
+			self.log.info(f'set_chunk_loc {args[0]} {args[1]} {args[2]} {args[3]}')
+		elif command == 'delete':
+			self.log.info(f'delete {args[0]} {args[1]}')
+
 
 
 class Directory():
@@ -26,17 +93,8 @@ class File():
 	def __init__(self, name, dfs_path: str):
 		self.dfs_path = dfs_path
 		self.size = 0
-		self.chunks = {} # maps chunk id to the servers
-		self.chunk_ordering = OrderedDict()
+		self.chunks = {}
 		self.status = None
-
-		# chunk_server1: 1 2 4 5 8
-		# chunk_server2: 1 3 4 6 7 8
-		# chunk_server3: 2 3 6 7 5
-  
-		# self.chunks
-		# 1: cs1 cs2
-		# 2: cs1 cs3
 
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
@@ -49,7 +107,8 @@ class MasterServer():
 		self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		self.sock.bind((self.host, self.port))
 		self.NUM_CHUNKS = config.NUM_CHUNKS
-		self.root = Directory('/')
+		self.logger = Logger(config.MASTER_LOG)
+		self.root = self.logger.root
 		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
 		heart_beat_thread.start()
 
@@ -143,20 +202,17 @@ class MasterServer():
 		else:
 			file = curr_dir.files[file_name]
 
-			chunk_ids, chunk_locs = [], []
 			for id, loc in file.chunks.items():
-				chunk_ids.append(id)
-				chunk_locs.append(loc)
+				response = {
+					'status': 0,
+					'chunk_id': id,
+					'chunk_loc': loc
+				}
+				response = json.dumps(response).encode('utf-8')
+				response += b' ' * (config.MESSAGE_SIZE - len(response))
+				client.send(response)
 
-			response = {
-				'status': 0,
-				'chunk_ids': chunk_ids,
-				'chunk_locs': chunk_locs
-			}
-
-			response = json.dumps(response).encode('utf-8')
-			response += b' ' * (config.MESSAGE_SIZE - len(response))
-			client.send(response)
+			client.send(self.__respond_status(1, 'Done'))
 
 
 
@@ -207,23 +263,19 @@ class MasterServer():
 			file = curr_dir.files[file_name]
 			curr_dir.files.pop(file_name)
 
-			chunk_ids, chunk_locs = [], []
 			for id, loc in file.chunks.items():
-				chunk_ids.append(id)
-				chunk_locs.append(loc)
-
-			response = {
-				'status': 0,
-				'chunk_ids': chunk_ids,
-				'chunk_locs': chunk_locs
-			}
-
-			response = json.dumps(response).encode('utf-8')
-			response += b' ' * (config.MESSAGE_SIZE - len(response))
-			client.send(response)
-
-	
 				
+				response = {
+					'status': 0,
+					'chunk_id': id,
+					'chunk_loc': loc
+				}
+				response = json.dumps(response).encode('utf-8')
+				response += b' ' * (config.MESSAGE_SIZE - len(response))
+				client.send(response)
+
+			self.logger.log_info('delete', [args[0], args[1]])
+			client.send(self.__respond_status(1, 'Done'))
 
 	def create_file(self, client, args):
 		directory = args[0]
@@ -243,6 +295,7 @@ class MasterServer():
 		else:
 			curr_dir.add_file(file_name)
 			print(f"added file {file_name}")
+			self.logger.log_info('create', [args[0], args[1]])
 			client.send(self.__respond_status(0, 'File Created'))
 
 
@@ -267,12 +320,6 @@ class MasterServer():
 		chunk_locs = self._sample_chunk_locs()
 
 		file = curr_dir.files[dfs_name]
-		if not file.chunk_ordering:
-			file.chunk_ordering[0] = chunk_id
-		else:
-			# last_key, last_chunk_id = file.chunk_ordering.popitem(last=True)
-			last_key = len(file.chunk_ordering)
-			file.chunk_ordering[last_key + 1] = chunk_id
 
 		file.chunks[chunk_id] = chunk_locs
 
@@ -281,14 +328,15 @@ class MasterServer():
 			'chunk_locs': chunk_locs
 		}
 
+		self.logger.log_info('set_chunk_loc', [args[0], args[1], chunk_id, chunk_locs])
 		response = json.dumps(response).encode('utf-8')
 		response += b' ' * (config.MESSAGE_SIZE - len(response))
 		client.send(response)
 
 	def create_dir(self, client, args):
-		print(args)
 		dir_loc = args[0]
 		new_dir = args[1]
+		print(dir_loc, new_dir)
 
 		dir_loc = [part for part in dir_loc.split('/') if part]
 		curr_dir = self.root
@@ -302,8 +350,10 @@ class MasterServer():
 		if new_dir in curr_dir.subdirectories:
 			client.send(self.__respond_status(-1, 'Directory already exists'))
 		else:
+			self.logger.log_info('create_dir', [args[0], args[1]])
 			curr_dir.subdirectories[new_dir] = Directory(curr_dir.dfs_path + '/' + new_dir)
 			client.send(self.__respond_status(0, 'Directory Created'))
+
 
 	def close_connection(self, client):
 		client.close()

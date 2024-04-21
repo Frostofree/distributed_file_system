@@ -91,8 +91,6 @@ class ChunkServer():
         client.close()
 
 
-
-
     def _respond_status(self, code, message):
 
         response =  {

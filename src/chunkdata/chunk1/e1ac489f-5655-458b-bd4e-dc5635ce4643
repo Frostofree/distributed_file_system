@@ -1,0 +1,2 @@
+, args):
+		directory = args[0]
