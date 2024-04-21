@@ -3,7 +3,6 @@ import pickle
 import os.path
 import threading
 import time
-import errno
 
 import config
 import json
@@ -83,7 +82,6 @@ class Client():
 			self.master.sendall(request)
 			chunk_ids, chunks_locs = [], []
 			while True:
-				time.sleep(0.2)
 				response = self.master.recv(config.MESSAGE_SIZE)
 				if not response:
 					raise Exception('Master not responding!')
@@ -173,7 +171,6 @@ class Client():
 			self.master.sendall(request)
 			chunk_ids, chunks_locs = [], []
 			while True:
-				time.sleep(0.2)
 				response = self.master.recv(config.MESSAGE_SIZE)
 				if not response:
 					raise Exception('Master not responding!')
@@ -195,6 +192,8 @@ class Client():
 						request = self._get_message_data('delete_chunk', id)	
 						chunk_server.sendall(request)
 						response = chunk_server.recv(config.MESSAGE_SIZE)
+						if not response:
+							raise Exception('Chunkserver not responding!')
 						response = json.loads(response.decode('utf-8'))
 						if response['status'] == -1:
 							print(response['message'])
@@ -312,3 +311,11 @@ if __name__ == '__main__':
 				break
 			else:
 				print("Command not found!")
+
+
+
+# create file 
+# delete file
+
+# read file
+# list files

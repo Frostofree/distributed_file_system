@@ -114,7 +114,7 @@ class Logger():
 
 					elif command == 'commit_file':
 						directory, file_name = line[1], line[2]
-						directory = [part for part in dir.split('/') if part]
+						directory = [part for part in directory.split('/') if part]
 						curr_dir = self.root
 						for d in directory:
 							curr_dir = curr_dir.subdirectories[d]
@@ -123,7 +123,7 @@ class Logger():
 
 					elif command == 'commit_delete':
 						directory, file_name = line[1], line[2]
-						directory = [part for part in dir.split('/') if part]
+						directory = [part for part in directory.split('/') if part]
 						curr_dir = self.root
 						for d in directory:
 							curr_dir = curr_dir.subdirectories[d]
@@ -173,6 +173,8 @@ class File():
 
 	def __repr__(self):
 		return f"Path: {self.dfs_path}, Size: {self.size}, Status: {self.status}" 
+	
+chunk_server_lock = threading.Lock()
 
 class MasterServer():
 	def __init__(self, host, port):
@@ -185,8 +187,14 @@ class MasterServer():
 		self.logger = Logger(config.MASTER_LOG)
 		self.root = self.logger.root
 		self.lock_map = {} # maps key: ip+port as string to file object
+		self.system_locked = False
+		
 		heart_beat_thread = threading.Thread(target=self.heart_beat_handler)
-		heart_beat_thread.start()
+		heart_beat_thread.start()	
+
+		prune_chunk_thread = threading.Thread(target=self.prune_chunk_handler)
+		prune_chunk_thread.start()
+
 		self.client_to_file_lock = SynchronizedDict()
 
 		
@@ -216,21 +224,45 @@ class MasterServer():
 
 				if sender_type == 'client':
 					if command == 'create_file':
-						self.create_file(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.create_file(client, args)
 					elif command == 'set_chunk_loc':
-						self.set_chunk_loc(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.set_chunk_loc(client, args)
 					elif command == 'commit_file':
-						self.commit_file(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.commit_file(client, args)
 					elif command == 'create_dir':
-						self.create_dir(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.create_dir(client, args)
 					elif command == 'read_file':
-						self.read_file(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.read_file(client, args)
 					elif command == 'list_files':
-						self.list_files(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.list_files(client, args)
 					elif command == 'delete_file':
-						self.delete_file(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.delete_file(client, args)
 					elif command == 'commit_delete':
-						self.commit_delete(client, args)
+						if self.system_locked:
+							client.send(self.__respond_status(-1, 'System is locked'))
+						else:
+							self.commit_delete(client, args)
 					elif command == 'close':
 						self.close_connection(client)
 						connected = False
@@ -241,29 +273,71 @@ class MasterServer():
 				client.close()
 				connected = False 
 
+	def prune_chunk_handler(self):
+		while True:
+			time.sleep(config.PRUNING_INTERVAL)
+			with chunk_server_lock:
+				self.system_locked = True
+				curr_dir = self.root
+				self.prune(curr_dir)
+				self.system_locked = False
+
+	def prune(self, dir):
+		# iterate through all the files in the directory
+		to_delete = []
+		for file_name, file in dir.files.items():
+			if file_name not in self.client_to_file_lock.values():
+				if file.status in [FileStatus.ABORTED, FileStatus.DELETED, FileStatus.CREATING]:
+					for chunk_id, chunk_locs in file.chunks.items():
+						for idx, loc in enumerate(config.CHUNK_PORTS):
+							try:
+								sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+								sock.connect((self.host, config.CHUNK_PORTS[idx]))
+								request = self.__respond_message("delete_chunk", [chunk_id])
+								sock.send(request)
+								response = sock.recv(config.MESSAGE_SIZE)
+								response = json.loads(response.decode('utf-8'))
+								if response['status'] == 0:
+									pass
+							except Exception as e:
+								return
+					to_delete.append(file_name)
+					self.logger.log_info('commit_delete', [dir.dfs_path, file_name])
+					print(f"File {file_name} pruned.")
+			else:
+				print(f"File {file_name} is locked by a client.")
+		for file_name in to_delete:
+			dir.files.pop(file_name)
+		for sub_dir in dir.subdirectories.values():
+			self.prune(sub_dir)
+			
+				
+			
 	def heart_beat_handler(self):
 		while True:
 			time.sleep(config.HEART_BEAT_INTERVAL)
-			for port in config.CHUNK_PORTS:
-				try:
-					sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-					sock.settimeout(1)
-					sock.connect((self.host, port))
-					request = self.__respond_message("heartbeat", [])
-					sock.send(request)
-					response = sock.recv(config.MESSAGE_SIZE)
-					response = json.loads(response.decode('utf-8'))
-					if response['status'] == 0:
-						pass
-					else:
-						raise Exception
-				except socket.error as e:
-					print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
-					sock.close()
-				except Exception as e:
-					print(e)
-					print(f"Chunk Server with IP {self.host} and Port {port} not up.")
-					sock.close()
+			with chunk_server_lock:
+
+				for port in config.CHUNK_PORTS:
+					try:
+						sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+						sock.settimeout(1)
+						sock.connect((self.host, port))
+						request = self.__respond_message("heartbeat", [])
+						sock.send(request)
+						response = sock.recv(config.MESSAGE_SIZE)
+						response = json.loads(response.decode('utf-8'))
+						if response['status'] == 0:
+							pass
+						else:
+							raise Exception
+					except socket.error as e:
+						print(f"Chunk Server with IP {self.host} and Port {port} not responding.")
+						sock.close()
+					except Exception as e:
+						print(e)
+						print(f"Chunk Server with IP {self.host} and Port {port} not up.")
+						sock.close()
 
 
 	def read_file(self, client, args):

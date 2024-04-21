@@ -7,8 +7,6 @@ import threading
 import config
 import json
 
-
-
 class ChunkServer():
     def __init__(self, host, port, rootdir):
         self.host = host
@@ -16,7 +14,6 @@ class ChunkServer():
         self.rootdir = rootdir
         self.present = {}
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind((self.host, self.port))
 
     def listen(self):
@@ -45,13 +42,13 @@ class ChunkServer():
         elif sender_type == 'master':
             if command == 'heartbeat':
                 self.heartbeart_handler(client, args)
+            elif command == 'delete_chunk':
+                self.delete_chunk(client, args)
             if command == 'replicate_chunk':
-                print("Chunk server recieved message")
                 self.replicate_chunk(client, args)
                 
         elif sender_type == 'chunk_server':
             if command == "write_chunk":
-                print(args)
                 self.write_chunk(client, args)
 
     def heartbeart_handler(self, client, args):
@@ -76,13 +73,16 @@ class ChunkServer():
 
     def delete_chunk(self, client, args):
         file_path = os.path.join(self.rootdir, args[0])
-        os.remove(file_path)
-        client.send(self._respond_status(0, 'Chunk deleted'))
+        try:
+            os.remove(file_path)
+            client.send(self._respond_status(0, 'Chunk deleted'))
+        except Exception as e:
+            print(e)
+            client.send(self._respond_status(1, 'Chunk not found'))
     
 
         
     def write_chunk(self, client, args):
-        print(f"Writing Chunk {args[0]}")
         # recieve data from client as a stream (sendall)
         data = b''
         while True:
@@ -133,8 +133,6 @@ class ChunkServer():
 
     def read_chunk2(self, id):
         data = ''
-        print("Id is: ", id)
-        print("Root directory is: ", self.rootdir)
         with open(os.path.join(self.rootdir, id), 'rb') as f:
             data = f.read()
 
@@ -142,18 +140,14 @@ class ChunkServer():
     
     # recieve on chunk server side and handle final reply to master in master.py 
     def send_chunk_data_to_new_chunk_server(self, chunk_id, new_chunk_loc):
-        print("new chunk loc is: ", new_chunk_loc)
         data = self.read_chunk2(chunk_id)
-        print("Trying to send data: ", data, " to port: ", new_chunk_loc)
         try:
             new_chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             new_chunk_server.connect((socket.gethostbyname('localhost'), new_chunk_loc))
             # new_chunk_server.settimeout(1)
             request = self._get_message_data('write_chunk', chunk_id)	
             new_chunk_server.sendall(request)
-            print("Request sent")
             new_chunk_server.sendall(data)
-            print("Data sent")
         except socket.timeout:
             print("Socket operation timed out on sending data corresponding to chunk_id: ", chunk_id)
             return 0
@@ -168,7 +162,6 @@ class ChunkServer():
 
     def replicate_chunk(self, client, args):
         dict_data = args[0] # {chunk_id, new_chunk_loc}
-        print("args[0] is: ", args[0])
         try:
             # status = 1
             status = self.send_chunk_data_to_new_chunk_server(dict_data["chunk_id"], dict_data["new_chunk_loc"])
