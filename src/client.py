@@ -9,14 +9,12 @@ import config
 import json
 
 
-
 class Client():
 	def __init__(self):
 		self.master_dead = True
 
-
 	def create_dir(self, dfs_dir, new_dir):
-		try:
+		
 			request = self._get_message_data('create_dir', dfs_dir, new_dir)
 			self.master.sendall(request)
 			response = self.master.recv(config.MESSAGE_SIZE)
@@ -24,15 +22,8 @@ class Client():
 				raise Exception('Master not responding!')
 			response = json.loads(response.decode('utf-8'))
 			print(response['message'])
-		except Exception as e:
-			self.master.close()
-			self.master_dead = True
-			if "[Errno 32] Broken pipe" in str(e):
-				print('Master not responding!')
-			else: print(e)
 
 	def create_file(self, local_path, dfs_dir, dfs_name):
-		try:
 			if not os.path.exists(local_path):
 				raise Exception('Local file does not exist')
 			request = self._get_message_data('create_file', dfs_dir, dfs_name)
@@ -49,21 +40,24 @@ class Client():
 			chunks = num_bytes // config.CHUNK_SIZE + int(num_bytes%config.CHUNK_SIZE != 0)
 
 			dead_chunks = [0]*config.NUM_CHUNKS
+			replication_success = True
 			for chunk in range(chunks):
+				# print(f" Chunk: {chunk} | {chunks}")
 				request = self._get_message_data('set_chunk_loc', dfs_dir, dfs_name)
 				self.master.send(request)
-				response = self.master.recv(config.MESSAGE_SIZE)
+				response = self.master.recv(config.MESSAGE_SIZE)				
 				if not response:
 					raise Exception('Master not responding!')
 				response = json.loads(response.decode('utf-8'))
 				chunk_id = response['chunk_id']
 				chunk_locs = response['chunk_locs']
-
 				with open(local_path, 'rb') as f:
 					f.seek(chunk * config.CHUNK_SIZE)
 					data = f.read(config.CHUNK_SIZE)
 
 				count = 0
+				# create a hashmap of chunk locs and thier sockets to avoid constantly connecting to the same chunkserver
+				
 				for chunk_loc in chunk_locs:
 					try:
 						chunk_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,7 +69,7 @@ class Client():
 						dead_chunks[chunk_loc] = 0
 						count += 1
 					except Exception as e:
-						
+						replication_success = False
 						if "[Errno 111] Connection refused" in str(e):
 							dead_chunks[chunk_loc] = 1
 						
@@ -85,17 +79,14 @@ class Client():
 					self.master.send(request)
 
 				if count == 0:
-					print('Could not create file. Try again...')
+					print("too many chunkservers down")
 					return
 
 			request = self._get_message_data("commit_file", dfs_dir, dfs_name)
 			self.master.send(request)
-		except Exception as e:
-			self.master.close()
-			self.master_dead = True
-			if "[Errno 32] Broken pipe" in str(e):
-				print('Master not responding!')
-			else: print(e)
+			if not replication_success: 
+				print("File written, but some of the chunkservers were down during file writing. Write file again under a separate name or delete and recreate this file later.")
+		
 
 
 	def read_file(self, dfs_dir, dfs_name):
@@ -122,6 +113,7 @@ class Client():
 			if not fail:
 				data = ''
 				final_success = True
+				
 				for id, locs in zip(chunk_ids, chunks_locs):
 					success = False
 					for loc in locs:
@@ -137,8 +129,10 @@ class Client():
 									success = False
 								else:
 									data += response['data']
+									# print(response['data'])
 									success = True
 							except:
+								replication_success = False
 								success = False
 						else:
 							break
@@ -147,8 +141,8 @@ class Client():
 						break
 				
 				if final_success == False:
-					print("Can't read file now. Try again later")
-					self.master.send(self._get_status_data(-1, "Can't read file now. Try again later"))
+					print("error: too many chunkservers down")
+					self.master.send(self._get_status_data(-1, "error: too many chunkservers down."))
 				else:
 					self.master.send(self._get_status_data(0, "ok"))
 					print(data)
@@ -221,9 +215,7 @@ class Client():
 							dead_chunks[loc] = 0
 						except Exception as e:
 							if "[Errno 111] Connection refused" in str(e):
-								print('Connection to chunk server failed!')
 								dead_chunks[loc] = 1
-							else: print(e)
 
 						if sum(dead_chunks) == config.NUM_CHUNKS:
 							request = self._get_message_data('file_failed', dfs_dir, dfs_name)
@@ -276,69 +268,77 @@ class Client():
 
 if __name__ == '__main__':
 	client = Client()
+	master_dead_notified = False	
 	while True:
 		if client.master_dead:
 			try:
 				client.master = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 				client.master.connect((socket.gethostbyname('localhost'), config.MASTER_PORT))
 				client.master_dead = False
-				print('Connected to Master!')
+				print('Connected to DFS')
 			except:
 				time.sleep(2)
-				print('Master currently down. Reconnecting...')
+				print('DFS currently down. Reconnecting...')
+				master_dead_notified = True
 		else:
-			command = input('> ')
+			command = input('$ ')
 			words = command.split()
 			command, args = words[0], words[1:]
 
 			if command == 'ls':
-				# usage ls <dfs_directory>
+				# usage: ls <dfs_directory>
 				if len(args) == 1:
 					client.list_files(args[0])
 				elif len(args) > 1:
-					print('Many arguments found.')
+					print('usage: ls <dfs_directory>')
 				else:
-					print('Too few arguments.')
+					print('usage: ls <dfs_directory>')
 
 			elif command == 'delete':
-				# usage delete <dfs_directory> <dfs_name>
+				# usage: delete <dfs_directory> <dfs_name>
 				if len(args) == 2:
 					client.delete_file(args[0], args[1])
 				elif len(args) > 2:
-					print('Many arguments found.')
+					print('usage: delete <dfs_directory> <dfs_name>')
 				else:
-					print('Too few arguments.')
+					print('usage: delete <dfs_directory> <dfs_name>')
 
 			elif command == 'read':
-				# usage read <dfs_directory> <dfs_name>
+				# usage: read <dfs_directory> <dfs_name>
 				if len(args) == 2:
 					client.read_file(args[0], args[1])
 				elif len(args) > 2:
-					print('Many arguments found.')
+					print('usage: read <dfs_directory> <dfs_name>')
 				else:
-					print('Too few arguments.')
+					print('usage: read <dfs_directory> <dfs_name>')
 
 			elif command == 'create':
-				# usage create <local_file> <dfs_directory> <dfs_name>
+				# usage: create <local_file> <dfs_directory> <dfs_name>
 				if len(args) == 3:
 					client.create_file(args[0], args[1], args[2])
 				elif len(args) > 3:
-					print('Many arguments found.')
+					print('usage: create <local_file> <dfs_directory> <dfs_name>')
 				else:
-					print('Too few arguments.')
+					print('usage: create <local_file> <dfs_directory> <dfs_name>')
 
 			elif command == 'create_dir':
-				# usage create_dir <dfs_directory> <directory_name>
+				# usage: create_dir <dfs_directory> <directory_name>
 				if len(args) == 2:
 					client.create_dir(args[0], args[1])
 				elif len(args) > 2:
-					print('Many arguments found.')
+					print('usage: create_dir <dfs_directory> <directory_name>')
 				else:
-					print('Too few arguments.')
+					print('usage: create_dir <dfs_directory> <directory_name>')
+			elif command == 'clear':
+				if len(args) == 0:
+					os.system('clear')
+				else:
+					print('usage: clear')
+
 
 			elif command == 'exit':
 				client.close_connection()
 				print("Exiting...")
 				break
 			else:
-				print("Command not found!")
+				print(f"{command}: command not found")

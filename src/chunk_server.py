@@ -25,36 +25,44 @@ class ChunkServer():
             handler.start()
 
     def service(self, client, address):
-        request = client.recv(config.MESSAGE_SIZE)
-        message = json.loads(request.decode('utf-8'))
+        ip, port = address
+        try:
+            request = client.recv(config.MESSAGE_SIZE)
+            if request == b'':
+                raise Exception(f'client {ip}:{address} disconnected')
+            message = json.loads(request.decode('utf-8'))
 
-        sender_type = message["sender_type"]
-        command = message["function"]
-        args = message["args"]
+            sender_type = message["sender_type"]
+            command = message["function"]
+            args = message["args"]
 
-        if sender_type == 'client':
-            if command == "write_chunk":
-                self.write_chunk(client, args)
-            elif command == 'read_chunk':
-                self.read_chunk(client, args)
-            elif command == 'delete_chunk':
-                self.delete_chunk(client, args)
-        elif sender_type == 'master':
-            if command == 'heartbeat':
-                self.heartbeart_handler(client, args)
-            elif command == 'delete_chunk':
-                self.delete_chunk(client, args)
-            if command == 'replicate_chunk':
-                self.replicate_chunk(client, args)
+            if sender_type == 'client':
+                if command == "write_chunk":
+                    self.write_chunk(client, args)
+                elif command == 'read_chunk':
+                    self.read_chunk(client, args)
+                elif command == 'delete_chunk':
+                    self.delete_chunk(client, args)
+            elif sender_type == 'master':
+                if command == 'heartbeat':
+                    self.heartbeart_handler(client, args)
+                elif command == 'delete_chunk':
+                    self.delete_chunk(client, args)
+                if command == 'replicate_chunk':
+                    self.replicate_chunk(client, args)
                 
-        elif sender_type == 'chunk_server':
-            if command == "write_chunk":
-                self.write_chunk(client, args)
+            elif sender_type == 'chunk_server':
+                if command == "write_chunk":
+                    self.write_chunk(client, args)
+
+        except Exception as e:
+            print(e)
+            client.close()
+                
 
     def heartbeart_handler(self, client, args):
         response = self._respond_status(0, 'OK')
         client.sendall(response)
-        client.close()
 
     def read_chunk(self, client, args):
         data = ''
@@ -79,9 +87,9 @@ class ChunkServer():
         except Exception as e:
             print(e)
             client.send(self._respond_status(1, 'Chunk not found'))
-    
-
         
+
+
     def write_chunk(self, client, args):
         # recieve data from client as a stream (sendall)
         data = b''
@@ -91,7 +99,6 @@ class ChunkServer():
                 break
             data += packet
         data = data.decode('utf-8').strip()
-        # write the data, creating the file if it does not exist
         os.makedirs(os.path.dirname(os.path.join(self.rootdir, args[0])), exist_ok=True)
         with open(os.path.join(self.rootdir, args[0]), 'w') as f:
             f.write(data)
@@ -192,7 +199,7 @@ if __name__ == '__main__':
 
     port = config.CHUNK_PORTS[num]
     rootdir = config.ROOT_DIR[num]
-
+    os.system('clear')
     print('Chunk Server Running')
     cs = ChunkServer(config.HOST, port, rootdir)
     cs.listen()
