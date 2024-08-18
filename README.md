@@ -1,12 +1,5 @@
 # DFS - Distributed File System
 
-## Team Members:
-
-- Ananth Muppidi - 2021101122
-- Amogha A H - 2021101007
-- Sidhi Panda - 2021111024
-- Pranit Khanna - 2021101057
-
 # Running the distributed file system
 
 ## Master
